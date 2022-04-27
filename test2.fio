@@ -1,0 +1,13 @@
+[simple]
+filename=/dev/md0
+ioengine=aio
+rw=write
+direct=1
+blocksize=512K
+iodepth=32
+runtime=30s
+time_based=1
+
+numjobs=2
+size=50%
+offset_increment=50%

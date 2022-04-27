@@ -1,0 +1,50 @@
+#!/bin/bash
+
+set -e
+
+function run_test()
+{
+	echo "  " "$@"
+	"$@" > /dev/null
+}
+
+function all_tests() {
+	run_test ./test1
+	run_test ./test2
+	run_test ./test3
+	run_test ./test3_all
+	if [ "$NO_RESHAPE" != "y" ]; then
+		run_test ./test3 -g
+	fi
+	run_test ./test2
+	run_test fio test1.fio
+	run_test fio test2.fio
+	run_test fio test_4jobs.fio
+}
+
+export ZERO_FIRST=y
+export QUIET=y
+
+echo "Default Settings"
+all_tests
+
+echo "No Force"
+export FORCE=n
+all_tests
+
+echo "Bitmap"
+export POLICY=bitmap
+all_tests
+
+echo "PPL"
+export POLICY=ppl
+export NO_RESHAPE=y
+all_tests
+
+echo "Journal"
+export JOURNAL=/dev/ram7
+export POLICY=journal
+all_tests
+
+unset NO_RESHAPE
+unset JOURNAL

@@ -1,0 +1,64 @@
+#!/bin/bash
+
+if [ "$EUID" -ne 0 ]; then
+	echo "Please run as root"
+	exit 1
+fi
+
+mdadm --stop /dev/md0 --quiet
+
+set -e
+
+CHUNK_SIZE=${CHUNK_SIZE:-64K}
+DISKS=${DISKS:-3}
+ASSUME_CLEAN=${ASSUME_CLEAN:-y}
+FORCE=${FORCE:-y}
+ZERO_FIRST=${ZERO_FIRST:-n}
+POLICY=${POLICY:-resync}
+QUIET=${QUIET:-n}
+
+MDADM_ARGS=("--consistency-policy=$POLICY")
+
+if [ "$POLICY" == "bitmap" ]; then
+	MDADM_ARGS+=("--bitmap=internal")
+fi
+
+if [ "$ASSUME_CLEAN" == "y" ]; then
+	MDADM_ARGS+=("--assume-clean")
+fi
+
+if [ "$FORCE" == "y" ]; then
+	MDADM_ARGS+=("--force")
+fi
+
+if [ "$ZERO_FIRST" == "y" ]; then
+	MDADM_ARGS+=("--run")
+fi
+
+if [ "$QUIET" == "y" ]; then
+	MDADM_ARGS+=("--quiet")
+fi
+
+if [[ -v JOURNAL ]]; then
+	MDADM_ARGS+=("--write-journal=$JOURNAL")
+fi
+
+modprobe brd
+if [ "$DISKS" == "3" ]; then
+	DEVICES=(/dev/ram0 /dev/ram1 /dev/ram2)
+elif [ "$DISKS" == "4" ]; then
+	DEVICES=(/dev/ram0 /dev/ram1 /dev/ram2 /dev/ram3)
+elif [ "$DISKS" == "5" ]; then
+	DEVICES=(/dev/ram0 /dev/ram1 /dev/ram2 /dev/ram3 /dev/ram4)
+else
+	echo "Unsupported number of disks" >&2
+	exit 1
+fi
+
+mdadm --create --write-mostly --level 5 -c "${CHUNK_SIZE}" \
+	--raid-devices "${#DEVICES[@]}" /dev/md0 "${MDADM_ARGS[@]}" \
+	"${DEVICES[@]}"
+
+echo 4 > /sys/block/md0/md/group_thread_cnt
+echo 8192 > /sys/block/md0/md/stripe_cache_size
+echo 1 > /sys/block/md0/md/skip_copy

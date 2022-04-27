@@ -1,0 +1,78 @@
+#!/usr/bin/env python3
+
+import argparse
+import sys
+import random
+import mmap
+import os
+import subprocess
+
+parser = argparse.ArgumentParser()
+parser.add_argument("-g", "--grow-test", action="store_true")
+args = parser.parse_args()
+
+subprocess.check_call("ASSUME_CLEAN=n ./setup",
+                      shell=True)
+
+kmsg = open("/dev/kmsg", "w")
+fd = os.open("/dev/md0", os.O_RDWR|os.O_DIRECT)
+f = os.fdopen(fd, "rb+", 0)
+
+def split_blocks(d, blksz=4096):
+    return [d[i:i+blksz] for i in range(0, len(d), blksz)]
+
+def write_test(offset_sector, b, sz=1 << 20):
+    offset = offset_sector << 9
+    kmsg.write(f"TEST {offset:#x} {offset_sector}\n")
+    kmsg.flush()
+
+    os.lseek(fd, offset, os.SEEK_SET)
+    m1 = mmap.mmap(-1, sz)
+    m1.write(b * sz)
+    os.write(fd, m1)
+
+    m2 = mmap.mmap(-1, sz)
+    os.lseek(fd, offset, os.SEEK_SET)
+    f.readinto(m2)
+
+    m1.seek(0)
+    m2.seek(0)
+    a = m1.read()
+    b = m2.read()
+    print(f"Wrote {len(a)} and read back {len(b)} at {offset:#x} {offset_sector}")
+    if a == b:
+        return
+
+    coupled_idx = enumerate(zip(a, b))
+    res = next(idx for idx, (x, y) in coupled_idx if x != y)
+    sys.exit(f"FAILED Readback at sector {offset + res:#x}")
+
+write_test(0, b"X")
+write_test(1544, b"Y")
+write_test(1552, b"Z")
+write_test(1560, b"A")
+write_test(1736, b"B")
+write_test(1688, b"B")
+write_test(1848, b"C")
+write_test(1520, b"D")
+
+print()
+
+for i in range(1, 80):
+    sector = random.randrange(0, 10000)
+    sz = random.randrange(512, 1 << 20, 512)
+    write_test(sector, bytes([i]), sz)
+
+if not args.grow_test:
+    sys.exit(0)
+
+subprocess.call(["mdadm", "--wait", "/dev/md0"])
+subprocess.check_call(["mdadm", "--add", "/dev/md0", "/dev/ram3",
+                       "/dev/ram4", "--quiet"])
+subprocess.check_call(["mdadm", "--grow", "--raid-devices", "5",
+                       "/dev/md0"])
+
+for i in range(1, 80):
+    sector = random.randrange(100, 10000)
+    sz = random.randrange(512, 1 << 20, 512)
+    write_test(sector, bytes([i]), sz)

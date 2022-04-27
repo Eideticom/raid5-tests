@@ -1,0 +1,10 @@
+#!/bin/bash
+
+set -e
+
+echo 0 > /proc/lock_stat
+
+
+echo 1 | sudo tee /proc/sys/kernel/lock_stat
+sudo fio test2.fio
+echo 0 | sudo tee /proc/sys/kernel/lock_stat

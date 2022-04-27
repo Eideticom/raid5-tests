@@ -1,0 +1,12 @@
+#!/bin/bash
+
+set -e
+
+TEST_SIZE=${TEST_SIZE:-32K}
+
+CHUNK_SIZE=$CHUNK_SIZE DISKS=$DISKS ./setup
+
+echo "==================" > /dev/kmsg
+dyndbg file raid5.c +p
+dd if=/dev/zero "bs=${TEST_SIZE}" count=1 of=/dev/md0 oflag=direct 2>&1
+dyndbg file raid5.c -p

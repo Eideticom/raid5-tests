@@ -1,0 +1,79 @@
+#!/bin/bash
+
+umount /dev/md0 2>/dev/null
+
+set -e
+
+ASSUME_CLEAN=n DISKS=5 CHUNK_SIZE=64K ./setup
+
+TEST_FILES="/home/logan/bigfile.c /home/logan/test_ofed /home/logan/rfile1"
+#TEST_FILES="/home/logan/test_ofed"
+
+mkfs.xfs -f /dev/md0
+
+function check_file() {
+	ORIG=$1
+	NEW=${2:-$(basename $ORIG)}
+	md5sum "$NEW"
+	cmp "$ORIG" "$NEW"
+}
+
+function check_all() {
+	for t in $TEST_FILES; do
+		check_file "$t"
+	done
+}
+
+function drop_cache() {
+	echo DROP CACHE
+	sync
+	drop_caches
+}
+
+function remount() {
+	echo REMOUNT
+	popd > /dev/null
+	umount /dev/md0
+	mount /dev/md0 mnt
+	pushd mnt > /dev/null
+}
+
+function atexit() {
+	dyndbg file raid5.c -p
+	popd > /dev/null
+	umount /dev/md0
+}
+
+mount /dev/md0 mnt
+pushd mnt > /dev/null
+trap atexit EXIT
+
+cp $TEST_FILES .
+sync
+check_all
+drop_cache
+check_all
+remount
+
+drop_cache
+remount
+
+#dyndbg func make_stripe_request +p
+#dyndbg func __add_stripe_bio +p
+
+SEQ_CNT=10
+function check_seq()
+{
+	for i in $(seq "$SEQ_CNT"); do
+		check_file /home/logan/bigfile.c "$i"
+	done
+}
+
+for i in $(seq "$SEQ_CNT"); do
+	cp /home/logan/bigfile.c "$i"
+done
+
+drop_cache
+check_seq
+remount
+check_seq
