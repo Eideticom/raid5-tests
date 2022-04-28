@@ -5,7 +5,9 @@ if [ "$EUID" -ne 0 ]; then
 	exit 1
 fi
 
-mdadm --stop /dev/md0 --quiet
+mdadm --wait /dev/md0 --quiet 2> /dev/null
+mdadm --stop /dev/md0 --quiet 2> /dev/null
+
 
 set -e
 
