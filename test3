@@ -23,7 +23,7 @@ def split_blocks(d, blksz=4096):
 
 def write_test(offset_sector, b, sz=1 << 20):
     offset = offset_sector << 9
-    kmsg.write(f"TEST {offset:#x} {offset_sector}\n")
+    kmsg.write(f"TEST {offset:#x} {offset_sector} {sz >> 9} {repr(b)}\n")
     kmsg.flush()
 
     os.lseek(fd, offset, os.SEEK_SET)
@@ -47,6 +47,22 @@ def write_test(offset_sector, b, sz=1 << 20):
     res = next(idx for idx, (x, y) in coupled_idx if x != y)
     sys.exit(f"FAILED Readback at sector {offset + res:#x}")
 
+def run_random(cnt):
+    for i in range(1, cnt):
+        sector = random.randrange(0, 10000)
+        sz = random.randrange(512, 1 << 20, 512)
+        write_test(sector, bytes([i & 0xFF]), sz)
+    print()
+
+def grow(cnt, dev):
+    subprocess.call(["mdadm", "--wait", "/dev/md0"])
+    subprocess.check_call(["mdadm", "--add", "/dev/md0", "--quiet", dev])
+    subprocess.check_call(["mdadm", "--grow", "--raid-devices", str(cnt),
+                           "/dev/md0"])
+    print(f"Array grew to {cnt} devices")
+    kmsg.write(f"Array grew to {cnt} devices")
+    kmsg.flush()
+
 write_test(0, b"X")
 write_test(1544, b"Y")
 write_test(1552, b"Z")
@@ -55,24 +71,16 @@ write_test(1736, b"B")
 write_test(1688, b"B")
 write_test(1848, b"C")
 write_test(1520, b"D")
-
 print()
 
-for i in range(1, 80):
-    sector = random.randrange(0, 10000)
-    sz = random.randrange(512, 1 << 20, 512)
-    write_test(sector, bytes([i]), sz)
+run_random(80)
 
 if not args.grow_test:
     sys.exit(0)
 
-subprocess.call(["mdadm", "--wait", "/dev/md0"])
-subprocess.check_call(["mdadm", "--add", "/dev/md0", "/dev/ram3",
-                       "/dev/ram4", "--quiet"])
-subprocess.check_call(["mdadm", "--grow", "--raid-devices", "5",
-                       "/dev/md0"])
-
-for i in range(1, 80):
-    sector = random.randrange(100, 10000)
-    sz = random.randrange(512, 1 << 20, 512)
-    write_test(sector, bytes([i]), sz)
+grow(4, "/dev/ram3")
+run_random(400)
+grow(5, "/dev/ram4")
+run_random(400)
+grow(6, "/dev/ram5")
+run_random(400)
