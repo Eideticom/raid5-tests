@@ -34,6 +34,7 @@ function remount() {
 	echo REMOUNT
 	popd > /dev/null
 	umount /dev/md0
+	xfs_repair -e /dev/md0 2> /dev/null
 	mount /dev/md0 mnt
 	pushd mnt > /dev/null
 }
