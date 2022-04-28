@@ -48,3 +48,23 @@ all_tests
 
 unset NO_RESHAPE
 unset JOURNAL
+unset POLICY
+
+echo "Raid6"
+export DISKS=4
+export LEVEL=6
+all_tests
+unset DISKS
+
+echo "Raid6 Bitmap"
+export DISKS=4
+export LEVEL=6
+export POLICY=bitmap
+all_tests
+unset DISKS
+unset POLICY
+
+echo "Raid4"
+export LEVEL=4
+all_tests
+unset LEVEL

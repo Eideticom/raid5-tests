@@ -78,8 +78,9 @@ run_random(80)
 if not args.grow_test:
     sys.exit(0)
 
-grow(4, "/dev/ram3")
-run_random(400)
+if os.getenv("LEVEL", "5") != "6":
+    grow(4, "/dev/ram3")
+    run_random(400)
 grow(5, "/dev/ram4")
 run_random(400)
 grow(6, "/dev/ram5")

@@ -1,25 +1,20 @@
-#!/bin/sh
+#!/bin/bash
 
 set -e
 
 export ZERO_FIRST=y
 
-DISKS=3 CHUNK_SIZE=8K ./test3
-DISKS=4 CHUNK_SIZE=8K ./test3
-DISKS=5 CHUNK_SIZE=8K ./test3
+function run_all_disks() {
+	if [ "$LEVEL" != "6" ]; then
+		DISKS=3 ./test3
+	fi
+	DISKS=4 ./test3
+	DISKS=5 ./test3
+}
 
-DISKS=3 CHUNK_SIZE=16K ./test3
-DISKS=4 CHUNK_SIZE=16K ./test3
-DISKS=5 CHUNK_SIZE=16K ./test3
-
-DISKS=3 CHUNK_SIZE=32K ./test3
-DISKS=4 CHUNK_SIZE=32K ./test3
-DISKS=5 CHUNK_SIZE=32K ./test3
-
-DISKS=3 CHUNK_SIZE=64K ./test3
-DISKS=4 CHUNK_SIZE=64K ./test3
-DISKS=5 CHUNK_SIZE=64K ./test3
-
-DISKS=3 CHUNK_SIZE=128K ./test3
-DISKS=4 CHUNK_SIZE=128K ./test3
-DISKS=5 CHUNK_SIZE=128K ./test3
+CHUNK_SIZE=4K run_all_disks
+CHUNK_SIZE=8K run_all_disks
+CHUNK_SIZE=16K run_all_disks
+CHUNK_SIZE=32K run_all_disks
+CHUNK_SIZE=64K run_all_disks
+CHUNK_SIZE=128K run_all_disks
