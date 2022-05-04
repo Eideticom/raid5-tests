@@ -6,9 +6,11 @@ import random
 import mmap
 import os
 import subprocess
+import pathlib
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-g", "--grow-test", action="store_true")
+parser.add_argument("-G", "--quick-grow-test", action="store_true")
 args = parser.parse_args()
 
 subprocess.check_call("ASSUME_CLEAN=n ./setup",
@@ -45,6 +47,8 @@ def write_test(offset_sector, b, sz=1 << 20):
 
     coupled_idx = enumerate(zip(a, b))
     res = next(idx for idx, (x, y) in coupled_idx if x != y)
+
+    pathlib.Path("failed.dat").write_bytes(b)
     sys.exit(f"FAILED Readback at sector {offset + res:#x}")
 
 def run_random(cnt):
@@ -73,15 +77,24 @@ write_test(1848, b"C")
 write_test(1520, b"D")
 print()
 
-run_random(80)
+cnt = 400
 
-if not args.grow_test:
+if args.quick_grow_test:
+    cnt = 5
+
+run_random(cnt)
+
+if not args.grow_test and not args.quick_grow_test:
     sys.exit(0)
 
 if os.getenv("LEVEL", "5") != "6":
     grow(4, "/dev/ram3")
-    run_random(400)
+    run_random(cnt)
+
+if args.quick_grow_test:
+   sys.exit(0)
+
 grow(5, "/dev/ram4")
-run_random(400)
+run_random(cnt)
 grow(6, "/dev/ram5")
-run_random(400)
+run_random(cnt)
