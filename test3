@@ -23,14 +23,14 @@ f = os.fdopen(fd, "rb+", 0)
 def split_blocks(d, blksz=4096):
     return [d[i:i+blksz] for i in range(0, len(d), blksz)]
 
-def write_test(offset_sector, b, sz=1 << 20):
+def write_test(offset_sector, bb, sz=1 << 20):
     offset = offset_sector << 9
-    kmsg.write(f"TEST {offset:#x} {offset_sector} {sz >> 9} {repr(b)}\n")
+    kmsg.write(f"TEST {offset:#x} {offset_sector} {sz >> 9} {repr(bb)}\n")
     kmsg.flush()
 
     os.lseek(fd, offset, os.SEEK_SET)
     m1 = mmap.mmap(-1, sz)
-    m1.write(b * sz)
+    m1.write(bb * sz)
     os.write(fd, m1)
 
     m2 = mmap.mmap(-1, sz)
@@ -41,7 +41,7 @@ def write_test(offset_sector, b, sz=1 << 20):
     m2.seek(0)
     a = m1.read()
     b = m2.read()
-    print(f"Wrote {len(a)} and read back {len(b)} at {offset:#x} {offset_sector}")
+    print(f"Wrote {len(a)} {repr(bb)}s and read back {len(b)} at {offset:#x} {offset_sector}")
     if a == b:
         return
 
