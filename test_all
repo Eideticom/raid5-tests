@@ -42,6 +42,7 @@ export NO_RESHAPE=y
 all_tests
 
 echo "Journal"
+export NO_RESHAPE=y
 export JOURNAL=/dev/ram7
 export POLICY=journal
 all_tests
