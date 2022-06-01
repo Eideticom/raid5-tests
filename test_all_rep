@@ -1,0 +1,9 @@
+#!/bin/bash
+
+set -e
+
+export ZERO_FIRST=y
+
+while true; do
+	./test_all
+done
