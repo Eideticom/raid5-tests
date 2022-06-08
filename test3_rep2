@@ -5,5 +5,5 @@ set -e
 export ZERO_FIRST=y
 
 while true; do
-	./test3 -G
+	./test3 "$@"
 done
