@@ -1,5 +1,6 @@
 #!/bin/bash
 
+sysctl kernel.printk=6
 dyndbg func raid5_make_request +p
 dyndbg func make_stripe_request +p
 dyndbg func __add_stripe_bio +p
