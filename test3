@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import hashlib
 import sys
 import random
 import mmap
@@ -11,7 +12,14 @@ import pathlib
 parser = argparse.ArgumentParser()
 parser.add_argument("-g", "--grow-test", action="store_true")
 parser.add_argument("-G", "--quick-grow-test", action="store_true")
+parser.add_argument("-V", "--verify", action="store_true")
 args = parser.parse_args()
+
+if args.verify:
+    subprocess.check_call(["modprobe", "brd"])
+    for i in range(8):
+        subprocess.check_call(["dd", "if=/dev/zero", f"of=/dev/ram{i}",
+                               "bs=1M", "count=512", "oflag=direct"])
 
 subprocess.check_call("ASSUME_CLEAN=n ./setup",
                       shell=True)
@@ -19,6 +27,9 @@ subprocess.check_call("ASSUME_CLEAN=n ./setup",
 kmsg = open("/dev/kmsg", "w")
 fd = os.open("/dev/md0", os.O_RDWR|os.O_DIRECT)
 f = os.fdopen(fd, "rb+", 0)
+
+if args.verify:
+    verify_fd = os.open("/dev/ram7", os.O_RDWR|os.O_DIRECT)
 
 def split_blocks(d, blksz=4096):
     return [d[i:i+blksz] for i in range(0, len(d), blksz)]
@@ -32,6 +43,10 @@ def write_test(offset_sector, bb, sz=1 << 20):
     m1 = mmap.mmap(-1, sz)
     m1.write(bb * sz)
     os.write(fd, m1)
+
+    if args.verify:
+        os.lseek(verify_fd, offset, os.SEEK_SET)
+        os.write(verify_fd, m1)
 
     m2 = mmap.mmap(-1, sz)
     os.lseek(fd, offset, os.SEEK_SET)
@@ -67,6 +82,14 @@ def grow(cnt, dev):
     kmsg.write(f"Array grew to {cnt} devices")
     kmsg.flush()
 
+def verify():
+    try:
+        print("Verifying")
+        subprocess.check_call(["cmp", "-b", "-n", "10M",
+                               "/dev/md0", "/dev/ram7"])
+    except subprocess.SubprocessError:
+        sys.exit(1)
+
 write_test(0, b"X")
 write_test(1544, b"Y")
 write_test(1552, b"Z")
@@ -85,6 +108,8 @@ if args.quick_grow_test:
 run_random(cnt)
 
 if not args.grow_test and not args.quick_grow_test:
+    if args.verify:
+        verify()
     sys.exit(0)
 
 if os.getenv("LEVEL", "5") != "6":
@@ -92,9 +117,14 @@ if os.getenv("LEVEL", "5") != "6":
     run_random(cnt)
 
 if args.quick_grow_test:
-   sys.exit(0)
+    if args.verify:
+        verify()
+    sys.exit(0)
 
 grow(5, "/dev/ram4")
 run_random(cnt)
 grow(6, "/dev/ram5")
 run_random(cnt)
+
+if args.verify:
+    verify()
