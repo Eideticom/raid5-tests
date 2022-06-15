@@ -64,4 +64,4 @@ mdadm --create --write-mostly --level 5 -c "${CHUNK_SIZE}" \
 
 echo 4 > /sys/block/md0/md/group_thread_cnt
 echo 8192 > /sys/block/md0/md/stripe_cache_size
-echo 1 > /sys/block/md0/md/skip_copy
+#echo 1 > /sys/block/md0/md/skip_copy

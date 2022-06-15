@@ -17,9 +17,13 @@ args = parser.parse_args()
 
 if args.verify:
     subprocess.check_call(["modprobe", "brd"])
+    sys_blk = pathlib.Path("/sys/block")
     for i in range(8):
-        subprocess.check_call(["dd", "if=/dev/zero", f"of=/dev/ram{i}",
-                               "bs=1M", "count=512", "oflag=direct"])
+        dev = f"ram{i}"
+        sectors = int((sys_blk / dev / "size").read_text())
+        count = (sectors << 9) >> 20
+        subprocess.check_call(["dd", "if=/dev/zero", f"of=/dev/{dev}",
+                               "bs=1M", f"count={count}", "oflag=direct"])
 
 subprocess.check_call("ASSUME_CLEAN=n ./setup",
                       shell=True)
@@ -66,11 +70,11 @@ def write_test(offset_sector, bb, sz=1 << 20):
     pathlib.Path("failed.dat").write_bytes(b)
     sys.exit(f"FAILED Readback at sector {offset + res:#x}")
 
-def run_random(cnt):
+def run_random(cnt, st=0):
     for i in range(1, cnt):
         sector = random.randrange(0, 10000)
         sz = random.randrange(512, 1 << 20, 512)
-        write_test(sector, bytes([i & 0xFF]), sz)
+        write_test(sector, bytes([(st + i) & 0xFF]), sz)
     print()
 
 def grow(cnt, dev):
@@ -114,7 +118,7 @@ if not args.grow_test and not args.quick_grow_test:
 
 if os.getenv("LEVEL", "5") != "6":
     grow(4, "/dev/ram3")
-    run_random(cnt)
+    run_random(cnt, 0x30)
 
 if args.quick_grow_test:
     if args.verify:
