@@ -46,6 +46,10 @@ if [[ -v JOURNAL ]]; then
 	MDADM_ARGS+=("--write-journal=$JOURNAL")
 fi
 
+if [[ -v MDSIZE ]]; then
+	MDADM_ARGS+=("--size=$MDSIZE")
+fi
+
 modprobe brd
 if [ "$DISKS" == "3" ]; then
 	DEVICES=(/dev/ram0 /dev/ram1 /dev/ram2)
