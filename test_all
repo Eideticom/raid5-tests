@@ -3,7 +3,7 @@
 import argparse
 import os
 import subprocess
-
+import sys
 
 def run_test(test, env=None):
     print(f"  {' '.join(test)}")
