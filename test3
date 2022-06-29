@@ -119,7 +119,10 @@ if __name__ == "__main__":
     group = parser.add_mutually_exclusive_group()
     group.add_argument("-g", "--grow-test", action="store_true")
     group.add_argument("-G", "--quick-grow-test", action="store_true")
-    parser.add_argument("-V", "--verify", action="store_true")
+    parser.add_argument("-V", "--verify", action="store_true",
+                        help="verify the disk matches expected when done; " +
+                        "NOTE: the upstream kernel has bugs here and it "+
+                        "fails randomly")
     args = parser.parse_args()
 
     runner = TestRunner(args.verify)
