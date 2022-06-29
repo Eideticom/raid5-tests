@@ -10,8 +10,9 @@ import subprocess
 import pathlib
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-g", "--grow-test", action="store_true")
-parser.add_argument("-G", "--quick-grow-test", action="store_true")
+group = parser.add_mutually_exclusive_group()
+group.add_argument("-g", "--grow-test", action="store_true")
+group.add_argument("-G", "--quick-grow-test", action="store_true")
 parser.add_argument("-V", "--verify", action="store_true")
 args = parser.parse_args()
 
@@ -94,41 +95,44 @@ def verify():
     except subprocess.SubprocessError:
         sys.exit(1)
 
-write_test(0, b"X")
-write_test(1544, b"Y")
-write_test(1552, b"Z")
-write_test(1560, b"A")
-write_test(1736, b"B")
-write_test(1688, b"B")
-write_test(1848, b"C")
-write_test(1520, b"D")
-print()
+def basic_tests():
+    write_test(0, b"X")
+    write_test(1544, b"Y")
+    write_test(1552, b"Z")
+    write_test(1560, b"A")
+    write_test(1736, b"B")
+    write_test(1688, b"B")
+    write_test(1848, b"C")
+    write_test(1520, b"D")
+    print()
 
-cnt = 400
+def grow_tests(cnt, quick=False):
+    if os.getenv("LEVEL", "5") != "6":
+        grow(4, "/dev/ram3")
+        run_random(cnt, 0x30)
 
-if args.quick_grow_test:
-    cnt = 5
+    if quick:
+        return
 
-run_random(cnt)
+    grow(5, "/dev/ram4")
+    run_random(cnt)
+    grow(6, "/dev/ram5")
+    run_random(cnt)
 
-if not args.grow_test and not args.quick_grow_test:
+
+if __name__ == "__main__":
+    basic_tests()
+
+    cnt = 400
+    if args.quick_grow_test:
+        cnt = 5
+
+    run_random(cnt)
+
+    if args.grow_test:
+        grow_tests(cnt)
+    elif args.quick_grow_test:
+        grow_tests(cnt, True)
+
     if args.verify:
         verify()
-    sys.exit(0)
-
-if os.getenv("LEVEL", "5") != "6":
-    grow(4, "/dev/ram3")
-    run_random(cnt, 0x30)
-
-if args.quick_grow_test:
-    if args.verify:
-        verify()
-    sys.exit(0)
-
-grow(5, "/dev/ram4")
-run_random(cnt)
-grow(6, "/dev/ram5")
-run_random(cnt)
-
-if args.verify:
-    verify()
