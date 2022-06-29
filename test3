@@ -138,7 +138,7 @@ class TestRunner:
         subprocess.check_call(["mdadm", "--manage", self.md_dev, "--quiet",
                                "--fail", dev])
         subprocess.check_call(["mdadm", "--manage", self.md_dev, "--quiet",
-                               "--remove", dev])
+                               "--remove", dev], stderr=subprocess.DEVNULL)
         self.log(f"Marked {dev} failed")
 
     def recover(self, dev):
