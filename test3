@@ -29,10 +29,15 @@ class TestRunner:
         subprocess.check_call("ASSUME_CLEAN=n ./setup",
                               shell=True)
 
-        self.md_dev = "/dev/md0"
+        md = "md0"
+        self.sysfs = pathlib.Path("/sys/block") / md / "md"
+        self.md_dev = f"/dev/{md}"
         self.kmsg = open("/dev/kmsg", "w")
         self.fd = os.open(self.md_dev, os.O_RDWR|os.O_DIRECT)
         self.f = os.fdopen(self.fd, "rb+", 0)
+
+    def get_level(self):
+        return (self.sysfs / "level").read_text().strip()
 
     def write_test(self, offset_sector, bb, sz=1 << 20):
         offset = offset_sector << 9
@@ -102,7 +107,7 @@ class TestRunner:
         self.kmsg.flush()
 
     def grow_tests(self, cnt, quick=False):
-        if os.getenv("LEVEL", "5") != "6":
+        if self.get_level() != "raid6":
             self.grow(4, "/dev/ram3")
             self.run_random(cnt, 0x30)
 
