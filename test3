@@ -124,7 +124,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     group = parser.add_mutually_exclusive_group()
     group.add_argument("-g", "--grow-test", action="store_true")
-    group.add_argument("-G", "--quick-grow-test", action="store_true")
+    parser.add_argument("-q", "--quick", action="store_true")
     parser.add_argument("-V", "--verify", action="store_true",
                         help="verify the disk matches expected when done; " +
                         "NOTE: the upstream kernel has bugs here and it "+
@@ -135,15 +135,13 @@ if __name__ == "__main__":
     runner.basic_tests()
 
     cnt = 400
-    if args.quick_grow_test:
+    if args.quick:
         cnt = 5
 
     runner.run_random(cnt)
 
     if args.grow_test:
-        runner.grow_tests(cnt)
-    elif args.quick_grow_test:
-        runner.grow_tests(cnt, True)
+        runner.grow_tests(cnt, args.quick)
 
     if args.verify:
         runner.verify()
