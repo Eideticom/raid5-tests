@@ -29,8 +29,9 @@ class TestRunner:
         subprocess.check_call("ASSUME_CLEAN=n ./setup",
                               shell=True)
 
+        self.md_dev = "/dev/md0"
         self.kmsg = open("/dev/kmsg", "w")
-        self.fd = os.open("/dev/md0", os.O_RDWR|os.O_DIRECT)
+        self.fd = os.open(self.md_dev, os.O_RDWR|os.O_DIRECT)
         self.f = os.fdopen(self.fd, "rb+", 0)
 
     def write_test(self, offset_sector, bb, sz=1 << 20):
@@ -87,15 +88,15 @@ class TestRunner:
         try:
             print("Verifying")
             subprocess.check_call(["cmp", "-b", "-n", "10M",
-                                   "/dev/md0", "/dev/ram7"])
+                                   self.md_dev, "/dev/ram7"])
         except subprocess.SubprocessError:
             sys.exit(1)
 
     def grow(self, cnt, dev):
-        subprocess.call(["mdadm", "--wait", "/dev/md0"])
-        subprocess.check_call(["mdadm", "--add", "/dev/md0", "--quiet", dev])
+        subprocess.call(["mdadm", "--wait", self.md_dev])
+        subprocess.check_call(["mdadm", "--add", self.md_dev, "--quiet", dev])
         subprocess.check_call(["mdadm", "--grow", "--raid-devices", str(cnt),
-                               "/dev/md0"])
+                               self.md_dev])
         print(f"Array grew to {cnt} devices")
         self.kmsg.write(f"Array grew to {cnt} devices")
         self.kmsg.flush()
