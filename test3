@@ -39,6 +39,14 @@ class TestRunner:
     def get_level(self):
         return (self.sysfs / "level").read_text().strip()
 
+    def get_num_disks(self):
+        return int((self.sysfs / "raid_disks").read_text().strip())
+
+    def get_disks(self):
+        for d in range(self.get_num_disks()):
+            disk = (self.sysfs / f"rd{d}" / "block").readlink().name
+            yield f"/dev/{disk}"
+
     def write_test(self, offset_sector, bb, sz=1 << 20):
         offset = offset_sector << 9
         self.kmsg.write(f"TEST {offset:#x} {offset_sector} {sz >> 9} {repr(bb)}\n")
@@ -83,7 +91,7 @@ class TestRunner:
         print()
 
     def run_random(self, cnt, st=0):
-        for i in range(1, cnt):
+        for i in range(1, cnt+1):
             sector = random.randrange(0, 10000)
             sz = random.randrange(512, 1 << 20, 512)
             self.write_test(sector, bytes([(st + i) & 0xFF]), sz)
@@ -97,14 +105,20 @@ class TestRunner:
         except subprocess.SubprocessError:
             sys.exit(1)
 
-    def grow(self, cnt, dev):
+    def log(self, msg):
+        print(msg)
+        self.kmsg.write(msg)
+        self.kmsg.flush()
+
+    def wait(self):
         subprocess.call(["mdadm", "--wait", self.md_dev])
+
+    def grow(self, cnt, dev):
+        self.wait()
         subprocess.check_call(["mdadm", "--add", self.md_dev, "--quiet", dev])
         subprocess.check_call(["mdadm", "--grow", "--raid-devices", str(cnt),
                                self.md_dev])
-        print(f"Array grew to {cnt} devices")
-        self.kmsg.write(f"Array grew to {cnt} devices")
-        self.kmsg.flush()
+        self.log(f"Array grew to {cnt} devices")
 
     def grow_tests(self, cnt, quick=False):
         if self.get_level() != "raid6":
@@ -119,11 +133,33 @@ class TestRunner:
         self.grow(6, "/dev/ram5")
         self.run_random(cnt)
 
+    def degrade(self, dev):
+        self.wait()
+        subprocess.check_call(["mdadm", "--manage", self.md_dev, "--quiet",
+                               "--fail", dev])
+        subprocess.check_call(["mdadm", "--manage", self.md_dev, "--quiet",
+                               "--remove", dev])
+        self.log(f"Marked {dev} failed")
+
+    def recover(self, dev):
+        subprocess.check_call(["mdadm", "--manage", "/dev/md0", "--quiet",
+                               "--add-spare", dev])
+        self.log(f"Restored {dev}")
+
+    def degrade_test(self, cnt, quick=False):
+        for d in self.get_disks():
+            self.degrade(d)
+            self.run_random(cnt // 2)
+            self.recover(d)
+            self.run_random(cnt // 2)
+            if quick:
+                return
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     group = parser.add_mutually_exclusive_group()
     group.add_argument("-g", "--grow-test", action="store_true")
+    group.add_argument("-d", "--degrade-test", action="store_true")
     parser.add_argument("-q", "--quick", action="store_true")
     parser.add_argument("-V", "--verify", action="store_true",
                         help="verify the disk matches expected when done; " +
@@ -136,12 +172,14 @@ if __name__ == "__main__":
 
     cnt = 400
     if args.quick:
-        cnt = 5
+        cnt = 6
 
     runner.run_random(cnt)
 
     if args.grow_test:
         runner.grow_tests(cnt, args.quick)
+    elif args.degrade_test:
+        runner.degrade_test(cnt, args.quick)
 
     if args.verify:
         runner.verify()
