@@ -1,71 +1,65 @@
-#!/bin/bash
+#!/usr/bin/env python3
 
-set -e
+import argparse
+import os
+import subprocess
 
-function run_test()
-{
-	echo "  " "$@"
-	"$@" > /dev/null
+
+def run_test(test, env=None):
+    print(f"  {' '.join(test)}")
+    try:
+        if env is not None:
+            env = {**os.environ, **env}
+        subprocess.check_call(test, stdout=subprocess.DEVNULL,
+                              env=env)
+    except subprocess.SubprocessError as e:
+        sys.exit(f"FAILED: {e}")
+
+def run_all_tests(env):
+    run_test(["./test1"], env)
+    run_test(["./test2"], env)
+    run_test(["./test3"], env)
+    run_test(["./test3_all"], env)
+    if env.get("NO_RESHAPE") != "y":
+        run_test(["./test3", "-g"], env)
+    run_test(["./test2"], env)
+    run_test(["fio", "test1.fio"], env)
+    run_test(["fio", "test2.fio"], env)
+    run_test(["fio", "test_4jobs.fio"], env)
+
+
+TEST_ENVS = {
+    "default":       None,
+    "no_force":      {"FORCE":      "n"},
+    "bitmap":        {"POLICY":     "bitmap"},
+    "ppl":           {"POLICY":     "ppl",
+                      "NO_RESHAPE": "y"},
+    "journal":       {"POLICY":     "journal",
+                      "JOURNAL":    "/dev/ram7",
+                      "NO_RESHAPE": "y"},
+    "raid6":         {"DISKS":      "4",
+                      "LEVEL":      "6"},
+    "raid6_bitmap":  {"DISKS":      "4",
+                      "LEVEL":      "6",
+                      "POLICY":     "bitmap"},
+    "raid4":         {"LEVEL":      "4"},
 }
 
-function all_tests() {
-	run_test ./test1
-	run_test ./test2
-	run_test ./test3
-	run_test ./test3_all
-	if [ "$NO_RESHAPE" != "y" ]; then
-		run_test ./test3 -g
-	fi
-	run_test ./test2
-	run_test fio test1.fio
-	run_test fio test2.fio
-	run_test fio test_4jobs.fio
-}
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("tests", nargs="*", help="tests to run",
+                        choices=list(TEST_ENVS.keys()) + [[]])
+    args = parser.parse_args()
 
-export ZERO_FIRST=y
-export QUIET=y
+    os.environ["ZERO_FIRST"] = "y"
+    os.environ["QUIET"] = "y"
 
-echo "Default Settings"
-all_tests
+    if not args.tests:
+        args.tests = TEST_ENVS.keys()
 
-echo "No Force"
-export FORCE=n
-all_tests
-
-echo "Bitmap"
-export POLICY=bitmap
-all_tests
-
-echo "PPL"
-export POLICY=ppl
-export NO_RESHAPE=y
-all_tests
-
-echo "Journal"
-export NO_RESHAPE=y
-export JOURNAL=/dev/ram7
-export POLICY=journal
-all_tests
-
-unset NO_RESHAPE
-unset JOURNAL
-unset POLICY
-
-echo "Raid6"
-export DISKS=4
-export LEVEL=6
-all_tests
-unset DISKS
-
-echo "Raid6 Bitmap"
-export DISKS=4
-export LEVEL=6
-export POLICY=bitmap
-all_tests
-unset DISKS
-unset POLICY
-
-echo "Raid4"
-export LEVEL=4
-all_tests
-unset LEVEL
+    try:
+        for test in args.tests:
+            print(f"Running {test}:")
+            run_all_tests(TEST_ENVS[test])
+    except KeyboardInterrupt:
+        print()
