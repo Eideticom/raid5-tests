@@ -11,7 +11,7 @@ mdadm --stop /dev/md0 --quiet 2> /dev/null
 
 set -e
 
-LEVEL=${LEVEL:5}
+LEVEL=${LEVEL:-5}
 CHUNK_SIZE=${CHUNK_SIZE:-64K}
 DISKS=${DISKS:-3}
 ASSUME_CLEAN=${ASSUME_CLEAN:-y}
@@ -63,7 +63,7 @@ else
 	exit 1
 fi
 
-mdadm --create --write-mostly --level 5 -c "${CHUNK_SIZE}" \
+mdadm --create --write-mostly --level "${LEVEL}" -c "${CHUNK_SIZE}" \
 	--raid-devices "${#DEVICES[@]}" /dev/md0 "${MDADM_ARGS[@]}" \
 	"${DEVICES[@]}"
 
