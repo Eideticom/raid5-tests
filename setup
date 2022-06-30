@@ -14,6 +14,7 @@ set -e
 LEVEL=${LEVEL:5}
 CHUNK_SIZE=${CHUNK_SIZE:-64K}
 DISKS=${DISKS:-3}
+DEVICES=${DEVICES:-"/dev/ram0 /dev/ram1 /dev/ram2 /dev/ram3 /dev/ram4 /dev/ram5 /dev/ram6 /dev/ram7"}
 ASSUME_CLEAN=${ASSUME_CLEAN:-y}
 FORCE=${FORCE:-y}
 ZERO_FIRST=${ZERO_FIRST:-n}
@@ -50,13 +51,15 @@ if [[ -v MDSIZE ]]; then
 	MDADM_ARGS+=("--size=$MDSIZE")
 fi
 
-modprobe brd
+DEVICES=(${DEVICES})
+
+#modprobe brd
 if [ "$DISKS" == "3" ]; then
-	DEVICES=(/dev/ram0 /dev/ram1 /dev/ram2)
+	DEVICES=(${DEVICES[0]} ${DEVICES[1]} ${DEVICES[2]})
 elif [ "$DISKS" == "4" ]; then
-	DEVICES=(/dev/ram0 /dev/ram1 /dev/ram2 /dev/ram3)
+	DEVICES=(${DEVICES[0]} ${DEVICES[1]} ${DEVICES[2]} ${DEVICES[3]})
 elif [ "$DISKS" == "5" ]; then
-	DEVICES=(/dev/ram0 /dev/ram1 /dev/ram2 /dev/ram3 /dev/ram4)
+	DEVICES=(${DEVICES[0]} ${DEVICES[1]} ${DEVICES[2]} ${DEVICES[3]} ${DEVICES[4]})
 else
 	echo "Unsupported number of disks" >&2
 	exit 1

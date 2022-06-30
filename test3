@@ -15,11 +15,13 @@ parser.add_argument("-G", "--quick-grow-test", action="store_true")
 parser.add_argument("-V", "--verify", action="store_true")
 args = parser.parse_args()
 
+devices = os.environ['DEVICES'].split()
+
 if args.verify:
     subprocess.check_call(["modprobe", "brd"])
     sys_blk = pathlib.Path("/sys/block")
     for i in range(8):
-        dev = f"ram{i}"
+        dev = devices[i]
         sectors = int((sys_blk / dev / "size").read_text())
         count = (sectors << 9) >> 20
         subprocess.check_call(["dd", "if=/dev/zero", f"of=/dev/{dev}",
@@ -33,7 +35,7 @@ fd = os.open("/dev/md0", os.O_RDWR|os.O_DIRECT)
 f = os.fdopen(fd, "rb+", 0)
 
 if args.verify:
-    verify_fd = os.open("/dev/ram7", os.O_RDWR|os.O_DIRECT)
+    verify_fd = os.open(devices[7], os.O_RDWR|os.O_DIRECT)
 
 def split_blocks(d, blksz=4096):
     return [d[i:i+blksz] for i in range(0, len(d), blksz)]
@@ -90,7 +92,7 @@ def verify():
     try:
         print("Verifying")
         subprocess.check_call(["cmp", "-b", "-n", "10M",
-                               "/dev/md0", "/dev/ram7"])
+                               "/dev/md0", devices[7]])
     except subprocess.SubprocessError:
         sys.exit(1)
 
@@ -117,7 +119,7 @@ if not args.grow_test and not args.quick_grow_test:
     sys.exit(0)
 
 if os.getenv("LEVEL", "5") != "6":
-    grow(4, "/dev/ram3")
+    grow(4, devices[3])
     run_random(cnt, 0x30)
 
 if args.quick_grow_test:
@@ -125,9 +127,9 @@ if args.quick_grow_test:
         verify()
     sys.exit(0)
 
-grow(5, "/dev/ram4")
+grow(5, devices[4])
 run_random(cnt)
-grow(6, "/dev/ram5")
+grow(6, devices[5])
 run_random(cnt)
 
 if args.verify:
