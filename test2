@@ -1,13 +1,23 @@
 #!/bin/bash
 
+SRC_DIR=$(dirname $(realpath "${BASH_SOURCE[0]}"))
+
 umount /dev/md0 2>/dev/null
 
 set -e
 
 ASSUME_CLEAN=n DISKS=5 CHUNK_SIZE=64K ./setup
 
-TEST_FILES="/home/logan/bigfile.c /home/logan/test_ofed /home/logan/rfile1"
-#TEST_FILES="/home/logan/test_ofed"
+if [ ! -d "$SRC_DIR/test_files" ]; then
+	mkdir test_files
+	pushd "$SRC_DIR/test_files"
+	head -c 8M /dev/urandom > bigfile
+	head -c 16k /dev/urandom > smallfile1
+	head -c 3k /dev/urandom > smallfile2
+	popd
+fi
+
+TEST_FILES="${SRC_DIR}/test_files/*"
 
 mkfs.xfs -f /dev/md0
 
@@ -66,12 +76,12 @@ SEQ_CNT=10
 function check_seq()
 {
 	for i in $(seq "$SEQ_CNT"); do
-		check_file /home/logan/bigfile.c "$i"
+		check_file "$SRC_DIR/test_files/bigfile" "$i"
 	done
 }
 
 for i in $(seq "$SEQ_CNT"); do
-	cp /home/logan/bigfile.c "$i"
+	cp "$SRC_DIR/test_files/bigfile" "$i"
 done
 
 drop_cache
