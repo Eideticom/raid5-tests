@@ -42,8 +42,14 @@ export NO_RESHAPE=y
 all_tests
 
 echo "Journal"
+if [ -z ${DEVICES+x} ]; then
+	export JOURNAL=/dev/ram7
+else
+	TMP=($DEVICES)
+	export JOURNAL=${TMP[7]}
+fi
+echo "  dev:$JOURNAL"
 export NO_RESHAPE=y
-export JOURNAL=/dev/ram7
 export POLICY=journal
 all_tests
 
