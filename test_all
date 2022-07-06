@@ -21,9 +21,8 @@ def run_all_tests(env):
     run_test(["./test3"], env)
     run_test(["./test3_all"], env)
     run_test(["./test3", "-d"], env)
-    if env and env.get("NO_RESHAPE") != "y":
+    if not env or env.get("NO_RESHAPE") != "y":
         run_test(["./test3", "-g"], env)
-    run_test(["./test2"], env)
     run_test(["fio", "test1.fio"], env)
     run_test(["fio", "test2.fio"], env)
     run_test(["fio", "test_4jobs.fio"], env)
