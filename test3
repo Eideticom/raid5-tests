@@ -88,6 +88,7 @@ class TestRunner:
         self.write_test(1688, b"B")
         self.write_test(1848, b"C")
         self.write_test(1520, b"D")
+        self.write_test(8293, b"E", 0xFF800)
         print()
 
     def run_random(self, cnt, st=0):
