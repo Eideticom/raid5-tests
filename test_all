@@ -31,7 +31,6 @@ def run_all_tests(env):
 
 TEST_ENVS = {
     "default":       None,
-    "no_force":      {"FORCE":      "n"},
     "no_thread":     {"THREAD_CNT": "0"},
     "bitmap":        {"POLICY":     "bitmap"},
     "ppl":           {"POLICY":     "ppl",
