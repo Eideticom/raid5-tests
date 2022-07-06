@@ -61,6 +61,9 @@ class MDInstance:
         self._md_dev = f"/dev/{md}"
         self._sysfs = pathlib.Path("/sys/block") / md / "md"
 
+    def open_direct(self):
+        return os.open(self._md_dev, os.O_RDWR|os.O_DIRECT)
+
     def wait(self):
         subprocess.call(["mdadm", "--wait", self._md_dev, "--quiet"],
                         stderr=subprocess.DEVNULL)
@@ -202,3 +205,47 @@ class MDInstance:
                    quiet=args.quiet,
                    thread_cnt=args.thread_cnt,
                    cache_size=args.cache_size)
+
+    def get_level(self):
+        return (self._sysfs / "level").read_text().strip()
+
+    def get_num_disks(self):
+        return int((self._sysfs / "raid_disks").read_text().strip())
+
+    def get_disks(self):
+        for d in range(self.get_num_disks()):
+            disk = (self._sysfs / f"rd{d}" / "block").readlink().name
+            yield f"/dev/{disk}"
+
+    def get_next_disk(self):
+        disk = (self._sysfs / "rd0" / "block").readlink().name
+
+        n = self.get_num_disks()
+        if "ram" in disk:
+            return f"/dev/ram{n}"
+        if "loop" in disk:
+            sectors = int((self._sysfs / "rd0" / "block" / "size").read_text())
+            return self._create_loop_disk(n, sectors << 9)
+
+        raise MDInvalidArgumentError("Can't grow array with out using loop or ram disks")
+
+    def grow(self):
+        self.wait()
+        dev = self.get_next_disk()
+        n = self.get_num_disks()
+        subprocess.check_call(["mdadm", "--add", self._md_dev,
+                               "--quiet", dev])
+        subprocess.check_call(["mdadm", "--grow", "--raid-devices",
+                               str(n + 1), self._md_dev])
+        return n + 1
+
+    def degrade(self, dev):
+        self.wait()
+        subprocess.check_call(["mdadm", "--manage", self._md_dev, "--quiet",
+                               "--fail", dev])
+        subprocess.check_call(["mdadm", "--manage", self._md_dev, "--quiet",
+                               "--remove", dev], stderr=subprocess.DEVNULL)
+
+    def recover(self, dev):
+        subprocess.check_call(["mdadm", "--manage", self._md_dev, "--quiet",
+                               "--add-spare", dev])

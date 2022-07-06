@@ -9,6 +9,8 @@ import os
 import subprocess
 import pathlib
 
+import md
+
 class TestRunner:
     def zero_all_ram_disks(self):
         subprocess.check_call(["modprobe", "brd"])
@@ -26,26 +28,13 @@ class TestRunner:
             self.zero_all_ram_disks()
             self.verify_fd = os.open("/dev/ram7", os.O_RDWR|os.O_DIRECT)
 
-        subprocess.check_call("ASSUME_CLEAN=n ./setup",
-                              shell=True)
+        self._md = md.MDInstance()
+        self._md.setup_from_args(["--assume-clean"])
 
-        md = "md0"
-        self.sysfs = pathlib.Path("/sys/block") / md / "md"
-        self.md_dev = f"/dev/{md}"
         self.kmsg = open("/dev/kmsg", "w")
-        self.fd = os.open(self.md_dev, os.O_RDWR|os.O_DIRECT)
+
+        self.fd = self._md.open_direct()
         self.f = os.fdopen(self.fd, "rb+", 0)
-
-    def get_level(self):
-        return (self.sysfs / "level").read_text().strip()
-
-    def get_num_disks(self):
-        return int((self.sysfs / "raid_disks").read_text().strip())
-
-    def get_disks(self):
-        for d in range(self.get_num_disks()):
-            disk = (self.sysfs / f"rd{d}" / "block").readlink().name
-            yield f"/dev/{disk}"
 
     def write_test(self, offset_sector, bb, sz=1 << 20):
         offset = offset_sector << 9
@@ -111,47 +100,31 @@ class TestRunner:
         self.kmsg.write(msg)
         self.kmsg.flush()
 
-    def wait(self):
-        subprocess.call(["mdadm", "--wait", self.md_dev])
-
-    def grow(self, cnt, dev):
-        self.wait()
-        subprocess.check_call(["mdadm", "--add", self.md_dev, "--quiet", dev])
-        subprocess.check_call(["mdadm", "--grow", "--raid-devices", str(cnt),
-                               self.md_dev])
+    def grow(self):
+        cnt = self._md.grow()
         self.log(f"Array grew to {cnt} devices")
 
     def grow_tests(self, cnt, quick=False):
-        if self.get_level() != "raid6":
-            self.grow(4, "/dev/ram3")
-            self.run_random(cnt, 0x30)
+        self.grow()
+        self.run_random(cnt, 0x30)
 
         if quick:
             return
 
-        self.grow(5, "/dev/ram4")
-        self.run_random(cnt)
-        self.grow(6, "/dev/ram5")
+        self.grow()
         self.run_random(cnt)
 
-    def degrade(self, dev):
-        self.wait()
-        subprocess.check_call(["mdadm", "--manage", self.md_dev, "--quiet",
-                               "--fail", dev])
-        subprocess.check_call(["mdadm", "--manage", self.md_dev, "--quiet",
-                               "--remove", dev], stderr=subprocess.DEVNULL)
-        self.log(f"Marked {dev} failed")
-
-    def recover(self, dev):
-        subprocess.check_call(["mdadm", "--manage", "/dev/md0", "--quiet",
-                               "--add-spare", dev])
-        self.log(f"Restored {dev}")
+        if self._md.get_level() != "raid6":
+            self.grow()
+            self.run_random(cnt)
 
     def degrade_test(self, cnt, quick=False):
-        for d in self.get_disks():
-            self.degrade(d)
+        for d in self._md.get_disks():
+            self._md.degrade(d)
+            self.log(f"Marked {d} failed")
             self.run_random(cnt // 2)
-            self.recover(d)
+            self._md.recover(d)
+            self.log(f"Restored {d}")
             self.run_random(cnt // 2)
             if quick:
                 return
