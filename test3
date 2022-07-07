@@ -141,19 +141,22 @@ if __name__ == "__main__":
                         "fails randomly")
     args = parser.parse_args()
 
-    runner = TestRunner(args.verify)
-    runner.basic_tests()
+    try:
+        runner = TestRunner(args.verify)
+        runner.basic_tests()
 
-    cnt = 400
-    if args.quick:
-        cnt = 6
+        cnt = 400
+        if args.quick:
+            cnt = 6
 
-    runner.run_random(cnt)
+        runner.run_random(cnt)
 
-    if args.grow_test:
-        runner.grow_tests(cnt, args.quick)
-    elif args.degrade_test:
-        runner.degrade_test(cnt, args.quick)
+        if args.grow_test:
+            runner.grow_tests(cnt, args.quick)
+        elif args.degrade_test:
+            runner.degrade_test(cnt, args.quick)
 
-    if args.verify:
-        runner.verify()
+        if args.verify:
+            runner.verify()
+    except KeyboardInterrupt:
+        sys.exit("")
