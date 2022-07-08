@@ -104,13 +104,12 @@ class MDArgumentParser(_EnvironmentArgumentParser):
                          type=self._suffix_parse,
                          help="md chunk size")
 
-        dsk_grp = grp.add_mutually_exclusive_group()
-        dsk_grp.add_argument("-d", "--disks", "--ram-disks", type=int,
-                             help="number of disks to create")
-        dsk_grp.add_argument("--loop-disks", type=int,
-                             help="use loop devices instead of ram disks")
-        dsk_grp.add_argument("--devs", nargs="+",
-                             help="specific disks to use")
+        grp.add_argument("-d", "--disks", type=int, default=3,
+                         help="number of disks to create")
+        grp.add_argument("--disk-type", choices=["ram", "dev", "loopback"],
+                         help="type of block device to use in testing, default uses either ramdisk or specified devs if present")
+        grp.add_argument("--devs", nargs="+",
+                         help="specific disks to use")
 
         grp.add_argument("--assume-clean", action="store_false",
                          help="don't sync after creating the array")
@@ -172,7 +171,7 @@ class MDInstance:
 
         return ret
 
-    def setup(self, level=5, disks=None, ram_disks=None, loop_disks=None,
+    def setup(self, level=5, devs=None, ndisks=None, disk_type=None,
               size=None, chunk_size=64 << 10, assume_clean=True, force=True,
               run=False, policy="resync", journal=None, quiet=False,
               thread_cnt=4, cache_size=8192):
@@ -180,28 +179,37 @@ class MDInstance:
         self.wait()
         self.stop()
 
-        if disks is None and ram_disks is None and loop_disks is None:
+        if (devs is None and disk_type == 'dev') or ndisks == 0:
             raise MDInvalidArgumentError("No disks specified for an array")
 
-        if ram_disks is not None:
-            if disks:
-                raise MDInvalidArgumentError("Must not specify both disks and ram_disks")
-            subprocess.check_call(["modprobe", "brd", "rd_size=131072"])
-            disks = [f"/dev/ram{i}" for i in range(ram_disks)]
+        if disk_type is None:
+            disk_type = "dev" if devs else "ram"
 
-        if loop_disks is not None:
-            if disks:
+        if disk_type == 'ram':
+            if devs:
+                raise MDInvalidArgumentError("Must not specify both devs and ram_disks")
+            subprocess.check_call(["modprobe", "brd", "rd_size=131072"])
+            devs = [f"/dev/ram{i}" for i in range(ndisks)]
+        elif disk_type == 'loopback':
+            if devs:
                 raise MDInvalidArgumentError("Must not specify both disks and loop_disks")
             if size is None:
                 raise MDInvalidArgumentError("Must specify size with loop_disks")
 
-            disks = self._create_loop_disks(loop_disks, size)
+            devs = self._create_loop_disks(ndisks, size)
             size = None
+        elif disk_type == "dev":
+            if len(devs) < ndisks:
+                raise MDInvalidArgumentError(f"Must specify at least {ndisks} devs")
+
+            devs = devs[:ndisks]
+        else:
+            raise MDInvalidArgumentError(f"Unknown disk_type: {disk_type}")
 
         mdadm_args = ["mdadm", "--create", self._md_dev,
                       "--level", str(level),
                       "--chunk", str(chunk_size >> 10),
-                      "--raid-devices", str(len(disks)),
+                      "--raid-devices", str(len(devs)),
                       "--consistency-policy", policy]
 
         if policy == "bitmap":
@@ -219,7 +227,7 @@ class MDInstance:
         if size is not None:
             mdadm_args += ["--size", str(size >> 10)]
 
-        subprocess.check_call(mdadm_args + disks)
+        subprocess.check_call(mdadm_args + devs)
 
         if thread_cnt is not None:
             (self._sysfs / "group_thread_cnt").write_text(str(thread_cnt))
@@ -227,12 +235,10 @@ class MDInstance:
             (self._sysfs / "stripe_cache_size").write_text(str(cache_size))
 
     def setup_from_parsed_args(self, args):
-        if not args.devs and not args.loop_disks and not args.disks:
-            args.disks = 3
-
         self.setup(level=args.level,
-                   ram_disks=args.disks,
-                   loop_disks=args.loop_disks,
+                   devs=args.devs,
+                   ndisks=args.disks,
+                   disk_type=args.disk_type,
                    size=args.size,
                    chunk_size=args.chunk_size,
                    assume_clean=args.assume_clean,
