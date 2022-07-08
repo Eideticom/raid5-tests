@@ -47,6 +47,9 @@ TEST_ENVS = {
     "raid4":         {"LEVEL":      "4"},
 }
 
+if "DEVS" in os.environ and os.environ["DEVS"].strip() != "":
+    del TEST_ENVS["loop"]
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("tests", nargs="*", help="tests to run",
