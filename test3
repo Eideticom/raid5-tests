@@ -12,23 +12,26 @@ import pathlib
 import md
 
 class TestRunner:
-    def zero_all_ram_disks(self):
-        subprocess.check_call(["modprobe", "brd"])
+    def zero_all_disks(self):
+        if 'ram' in next(self._md.get_disks()):
+            subprocess.check_call(["modprobe", "brd"])
+
         sys_blk = pathlib.Path("/sys/block")
-        for i in range(8):
-            dev = f"ram{i}"
+        for dev in self._md.devs:
             sectors = int((sys_blk / dev / "size").read_text())
             count = (sectors << 9) >> 20
-            subprocess.check_call(["dd", "if=/dev/zero", f"of=/dev/{dev}",
+            subprocess.check_call(["dd", "if=/dev/zero", f"of={dev}",
                                    "bs=1M", f"count={count}", "oflag=direct"])
 
     def __init__(self, verify=False):
+        self._md = md.MDInstance()
+
         self.verify_fd = None
         if verify:
-            self.zero_all_ram_disks()
-            self.verify_fd = os.open("/dev/ram7", os.O_RDWR|os.O_DIRECT)
+            self.verify_disk = self._md.get_special_disk()
+            self.zero_all_disks()
+            self.verify_fd = os.open(self.verify_disk, os.O_RDWR|os.O_DIRECT)
 
-        self._md = md.MDInstance()
         self._md.setup_from_args(["--assume-clean"])
 
         self.kmsg = open("/dev/kmsg", "w")
@@ -91,7 +94,7 @@ class TestRunner:
         try:
             print("Verifying")
             subprocess.check_call(["cmp", "-b", "-n", "10M",
-                                   self.md_dev, "/dev/ram7"])
+                                   self.md_dev, self.verify_disk])
         except subprocess.SubprocessError:
             sys.exit(1)
 
