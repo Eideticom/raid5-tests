@@ -127,7 +127,8 @@ class MDArgumentParser(_EnvironmentArgumentParser):
                          help="group thread count for array")
         grp.add_argument("--cache-size", default=8192, type=int,
                          help="cache size")
-        grp.add_argument("--journal", help="journal type")
+        grp.add_argument("--journal", action="store_true",
+                         help="use md journaling")
         grp.add_argument("--size", type=self._suffix_parse,
                          help="size used from each disk")
 
@@ -173,7 +174,7 @@ class MDInstance:
 
     def setup(self, level=5, devs=None, ndisks=None, disk_type=None,
               size=None, chunk_size=64 << 10, assume_clean=True, force=True,
-              run=False, policy="resync", journal=None, quiet=False,
+              run=False, policy="resync", journal=False, quiet=False,
               thread_cnt=4, cache_size=8192):
 
         self.wait()
@@ -226,8 +227,8 @@ class MDInstance:
             mdadm_args.append("--run")
         if quiet:
             mdadm_args.append("--quiet")
-        if journal is not None:
-            mdadm_args += ["--write-journal", journal]
+        if journal:
+            mdadm_args += ["--write-journal", self.get_special_disk()]
         if size is not None:
             mdadm_args += ["--size", str(size >> 10)]
 

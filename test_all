@@ -37,7 +37,7 @@ TEST_ENVS = {
     "ppl":           {"POLICY":     "ppl",
                       "NO_RESHAPE": "y"},
     "journal":       {"POLICY":     "journal",
-                      "JOURNAL":    "/dev/ram7",
+                      "JOURNAL":    "y",
                       "NO_RESHAPE": "y"},
     "raid6":         {"DISKS":      "4",
                       "LEVEL":      "6"},
