@@ -132,6 +132,8 @@ class MDArgumentParser(_EnvironmentArgumentParser):
         grp.add_argument("--size", type=self._suffix_parse,
                          help="size used from each disk")
 
+        self.md_grp = grp
+
 class MDInvalidArgumentError(Exception):
     pass
 
