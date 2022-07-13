@@ -7,18 +7,7 @@ import re
 import subprocess
 import time
 
-class EnvironmentArgumentParser(argparse.ArgumentParser):
-    class _CustomHelpFormatter(argparse.ArgumentDefaultsHelpFormatter):
-        def _get_help_string(self, action):
-            help = super()._get_help_string(action)
-            if action.dest != 'help':
-                help += ' [env: {}]'.format(action.dest.upper())
-            return help
-
-    def __init__(self, *, formatter_class=_CustomHelpFormatter,
-                 **kwargs):
-        super().__init__(formatter_class=formatter_class, **kwargs)
-
+class _EnvironmentArgMixin:
     def to_bool(self, x):
         if isinstance(x, bool):
             return x
@@ -30,15 +19,49 @@ class EnvironmentArgumentParser(argparse.ArgumentParser):
                 return False
         return False
 
-    def _add_action(self, action):
-        envval = os.environ.get(action.dest.upper(),
-                                action.default)
-        if isinstance(action, argparse._StoreTrueAction):
+    def add_argument(self, *args, **kwargs):
+        action_type = kwargs.get("action", None)
+        action = super().add_argument(*args, **kwargs)
+
+        if action_type == "help":
+            return action
+
+        envval = os.environ.get(action.dest.upper(), action.default)
+        if action_type == "store_true":
             envval = self.to_bool(envval)
+        if envval and kwargs.get("nargs", None) == "+":
+            envval = envval.split()
         if envval != "":
             action.default = envval
 
-        return super()._add_action(action)
+        return action
+
+    def _mixin_group(self, grp):
+        orig_typ = type(grp)
+        grp.__class__ = type("_Env" + orig_typ.__name__,
+                             (_EnvironmentArgMixin, orig_typ), {})
+        return grp
+
+    def add_argument_group(self, *args, **kwargs):
+        grp = super().add_argument_group(*args, **kwargs)
+        return self._mixin_group(grp)
+
+    def add_mutually_exclusive_group(self, *args, **kwargs):
+        grp = super().add_mutually_exclusive_group(*args, **kwargs)
+        return self._mixin_group(grp)
+
+class _EnvironmentArgumentParser(_EnvironmentArgMixin,
+                                 argparse.ArgumentParser):
+    class _CustomHelpFormatter(argparse.ArgumentDefaultsHelpFormatter):
+        def _get_help_string(self, action):
+            help = super()._get_help_string(action)
+            if action.dest != 'help':
+                help += ' [env: {}]'.format(action.dest.upper())
+            return help
+
+    def __init__(self, *, formatter_class=_CustomHelpFormatter,
+                 **kwargs):
+        super().__init__(formatter_class=formatter_class, **kwargs)
 
 UNITS = {"B": 1,
          "K": 1 << 10,
@@ -149,7 +172,7 @@ class MDInstance:
             (self._sysfs / "stripe_cache_size").write_text(str(cache_size))
 
     def setup_from_args(self, args=None):
-        parser = EnvironmentArgumentParser()
+        parser = _EnvironmentArgumentParser()
         parser.add_argument("-l", "--level", type=int, default=5,
                             help="raid level")
         parser.add_argument("-c", "--chunk-size", default=64 << 10,
