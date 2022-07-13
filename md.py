@@ -78,19 +78,59 @@ class _EnvironmentArgumentParser(_EnvironmentArgMixin,
                  **kwargs):
         super().__init__(formatter_class=formatter_class, **kwargs)
 
-UNITS = {"B": 1,
-         "K": 1 << 10,
-         "M": 1 << 20,
-         "G": 1 << 30,
-         "T": 1 << 40,
-}
+class MDArgumentParser(_EnvironmentArgumentParser):
+    _UNITS = {"B": 1,
+              "K": 1 << 10,
+              "M": 1 << 20,
+              "G": 1 << 30,
+              "T": 1 << 40,
+    }
 
-def suffix_parse(val):
-    m = re.match(r'^(\d+)([KMGTB]?)B?$', val.upper())
-    if m:
-        number, unit = m.groups()
-        return int(number) * UNITS[unit]
-    raise TypeError("Not a valid size")
+    @classmethod
+    def _suffix_parse(cls, val):
+        m = re.match(r'^(\d+)([KMGTB]?)B?$', val.upper())
+        if m:
+            number, unit = m.groups()
+            return int(number) * cls._UNITS[unit]
+        raise TypeError("Not a valid size")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        grp = self.add_argument_group("MD Array Options")
+        grp.add_argument("-l", "--level", type=int, default=5,
+                         help="raid level")
+        grp.add_argument("-c", "--chunk-size", default=64 << 10,
+                         type=self._suffix_parse,
+                         help="md chunk size")
+
+        dsk_grp = grp.add_mutually_exclusive_group()
+        dsk_grp.add_argument("-d", "--disks", "--ram-disks", type=int,
+                             help="number of disks to create")
+        dsk_grp.add_argument("--loop-disks", type=int,
+                             help="use loop devices instead of ram disks")
+        dsk_grp.add_argument("--devs", nargs="+",
+                             help="specific disks to use")
+
+        grp.add_argument("--assume-clean", action="store_false",
+                         help="don't sync after creating the array")
+        grp.add_argument("--force", action="store_true",
+                         help="force mdadm creation")
+        grp.add_argument("--zero-first", action="store_true",
+                         help="don't prompt to start the array")
+        grp.add_argument("--run", action="store_true",
+                         help="don't prompt to start the array")
+        grp.add_argument("--policy", default="resync",
+                         help="consistency policy")
+        grp.add_argument("--quiet", action="store_true",
+                         help="be quiet")
+        grp.add_argument("--thread-cnt", default=4, type=int,
+                         help="group thread count for array")
+        grp.add_argument("--cache-size", default=8192, type=int,
+                         help="cache size")
+        grp.add_argument("--journal", help="journal type")
+        grp.add_argument("--size", type=self._suffix_parse,
+                         help="size used from each disk")
 
 class MDInvalidArgumentError(Exception):
     pass
@@ -186,44 +226,7 @@ class MDInstance:
         if cache_size is not None and cache_size > 0:
             (self._sysfs / "stripe_cache_size").write_text(str(cache_size))
 
-    def setup_from_args(self, args=None):
-        parser = _EnvironmentArgumentParser()
-        parser.add_argument("-l", "--level", type=int, default=5,
-                            help="raid level")
-        parser.add_argument("-c", "--chunk-size", default=64 << 10,
-                            type=suffix_parse,
-                            help="md chunk size")
-
-        group = parser.add_mutually_exclusive_group()
-        group.add_argument("-d", "--disks", "--ram-disks", type=int,
-                           help="number of disks to create")
-        group.add_argument("--loop-disks", type=int,
-                           help="use loop devices instead of ram disks")
-        group.add_argument("--devs", nargs="+",
-                           help="specific disks to use")
-
-        parser.add_argument("--assume-clean", action="store_false",
-                            help="don't sync after creating the array")
-        parser.add_argument("--force", action="store_true",
-                            help="force mdadm creation")
-        parser.add_argument("--zero-first", action="store_true",
-                            help="don't prompt to start the array")
-        parser.add_argument("--run", action="store_true",
-                            help="don't prompt to start the array")
-        parser.add_argument("--policy", default="resync",
-                            help="consistency policy")
-        parser.add_argument("--quiet", action="store_true",
-                            help="be quiet")
-        parser.add_argument("--thread-cnt", default=4, type=int,
-                            help="group thread count for array")
-        parser.add_argument("--cache-size", default=8192, type=int,
-                            help="cache size")
-        parser.add_argument("--journal", help="journal type")
-        parser.add_argument("--size", type=suffix_parse,
-                            help="size used from each disk")
-
-        args = parser.parse_args(args)
-
+    def setup_from_parsed_args(self, args):
         if not args.devs and not args.loop_disks and not args.disks:
             args.disks = 3
 
@@ -240,6 +243,11 @@ class MDInstance:
                    quiet=args.quiet,
                    thread_cnt=args.thread_cnt,
                    cache_size=args.cache_size)
+
+    def setup_from_args(self, args=None):
+        md_parser = MDArgumentParser()
+        args = md_parser.parse_args(args)
+        self.setup_from_parsed_args(args)
 
     def get_level(self):
         return (self._sysfs / "level").read_text().strip()
