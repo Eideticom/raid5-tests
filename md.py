@@ -8,6 +8,9 @@ import subprocess
 import time
 
 class _EnvironmentArgMixin:
+    _is_mutex_grp = False
+    _env_found = None
+
     def to_bool(self, x):
         if isinstance(x, bool):
             return x
@@ -26,7 +29,15 @@ class _EnvironmentArgMixin:
         if action_type == "help":
             return action
 
-        envval = os.environ.get(action.dest.upper(), action.default)
+        env = action.dest.upper()
+        if self._is_mutex_grp and os.environ.get(env, None):
+            if self._env_found is not None:
+                print(f"environment variable {env} not allowed with variable {self._env_found}",
+                      file=sys.stderr)
+                sys.exit(2)
+            self._env_found = env
+
+        envval = os.environ.get(env, action.default)
         if action_type == "store_true":
             envval = self.to_bool(envval)
         if envval and kwargs.get("nargs", None) == "+":
@@ -48,6 +59,7 @@ class _EnvironmentArgMixin:
 
     def add_mutually_exclusive_group(self, *args, **kwargs):
         grp = super().add_mutually_exclusive_group(*args, **kwargs)
+        grp._is_mutex_grp = True
         return self._mixin_group(grp)
 
 class _EnvironmentArgumentParser(_EnvironmentArgMixin,
@@ -208,12 +220,6 @@ class MDInstance:
                             help="size used from each disk")
 
         args = parser.parse_args(args)
-
-        if args.devs:
-            args.disks = None
-            args.loop_disks = None
-        if args.loop_disks:
-            args.disks = None
 
         if not args.devs and not args.loop_disks and not args.disks:
             args.disks = 3
