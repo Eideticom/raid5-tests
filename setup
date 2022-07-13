@@ -5,8 +5,11 @@ import os
 import sys
 
 if __name__ == "__main__":
+
+    md_parser = md.MDArgumentParser()
+    args = md_parser.parse_args()
     if os.geteuid() != 0:
         sys.exit("Must run as root")
 
     inst = md.MDInstance()
-    inst.setup_from_args()
+    inst.setup_from_parsed_args(args)

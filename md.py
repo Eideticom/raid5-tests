@@ -5,19 +5,12 @@ import os
 import pathlib
 import re
 import subprocess
+import sys
 import time
 
-class EnvironmentArgumentParser(argparse.ArgumentParser):
-    class _CustomHelpFormatter(argparse.ArgumentDefaultsHelpFormatter):
-        def _get_help_string(self, action):
-            help = super()._get_help_string(action)
-            if action.dest != 'help':
-                help += ' [env: {}]'.format(action.dest.upper())
-            return help
-
-    def __init__(self, *, formatter_class=_CustomHelpFormatter,
-                 **kwargs):
-        super().__init__(formatter_class=formatter_class, **kwargs)
+class _EnvironmentArgMixin:
+    _is_mutex_grp = False
+    _env_found = None
 
     def to_bool(self, x):
         if isinstance(x, bool):
@@ -30,29 +23,113 @@ class EnvironmentArgumentParser(argparse.ArgumentParser):
                 return False
         return False
 
-    def _add_action(self, action):
-        envval = os.environ.get(action.dest.upper(),
-                                action.default)
-        if isinstance(action, argparse._StoreTrueAction):
+    def add_argument(self, *args, **kwargs):
+        action_type = kwargs.get("action", None)
+        action = super().add_argument(*args, **kwargs)
+
+        if action_type == "help":
+            return action
+
+        env = action.dest.upper()
+        if self._is_mutex_grp and os.environ.get(env, None):
+            if self._env_found is not None:
+                print(f"environment variable {env} not allowed with variable {self._env_found}",
+                      file=sys.stderr)
+                sys.exit(2)
+            self._env_found = env
+
+        envval = os.environ.get(env, action.default)
+        if action_type == "store_true":
             envval = self.to_bool(envval)
+        nargs = kwargs.get("nargs", None)
+        if ((nargs in ("+", "*") or isinstance(nargs, int)) and
+            isinstance(envval, str)):
+            envval = envval.split()
         if envval != "":
             action.default = envval
 
-        return super()._add_action(action)
+        return action
 
-UNITS = {"B": 1,
-         "K": 1 << 10,
-         "M": 1 << 20,
-         "G": 1 << 30,
-         "T": 1 << 40,
-}
+    def _mixin_group(self, grp):
+        orig_typ = type(grp)
+        grp.__class__ = type("_Env" + orig_typ.__name__,
+                             (_EnvironmentArgMixin, orig_typ), {})
+        return grp
 
-def suffix_parse(val):
-    m = re.match(r'^(\d+)([KMGTB]?)B?$', val.upper())
-    if m:
-        number, unit = m.groups()
-        return int(number) * UNITS[unit]
-    raise TypeError("Not a valid size")
+    def add_argument_group(self, *args, **kwargs):
+        grp = super().add_argument_group(*args, **kwargs)
+        return self._mixin_group(grp)
+
+    def add_mutually_exclusive_group(self, *args, **kwargs):
+        grp = super().add_mutually_exclusive_group(*args, **kwargs)
+        grp._is_mutex_grp = True
+        return self._mixin_group(grp)
+
+class _EnvironmentArgumentParser(_EnvironmentArgMixin,
+                                 argparse.ArgumentParser):
+    class _CustomHelpFormatter(argparse.ArgumentDefaultsHelpFormatter):
+        def _get_help_string(self, action):
+            help = super()._get_help_string(action)
+            if action.dest != 'help':
+                help += ' [env: {}]'.format(action.dest.upper())
+            return help
+
+    def __init__(self, *, formatter_class=_CustomHelpFormatter,
+                 **kwargs):
+        super().__init__(formatter_class=formatter_class, **kwargs)
+
+class MDArgumentParser(_EnvironmentArgumentParser):
+    _UNITS = {"B": 1,
+              "K": 1 << 10,
+              "M": 1 << 20,
+              "G": 1 << 30,
+              "T": 1 << 40,
+    }
+
+    @classmethod
+    def _suffix_parse(cls, val):
+        m = re.match(r'^(\d+)([KMGTB]?)B?$', val.upper())
+        if m:
+            number, unit = m.groups()
+            return int(number) * cls._UNITS[unit]
+        raise TypeError("Not a valid size")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        grp = self.add_argument_group("MD Array Options")
+        grp.add_argument("-l", "--level", type=int, default=5,
+                         help="raid level")
+        grp.add_argument("-c", "--chunk-size", default=64 << 10,
+                         type=self._suffix_parse,
+                         help="md chunk size")
+
+        grp.add_argument("-d", "--disks", type=int, default=3,
+                         help="number of disks to create")
+        grp.add_argument("--disk-type", choices=["ram", "dev", "loopback"],
+                         help="type of block device to use in testing, default uses either ramdisk or specified devs if present")
+        grp.add_argument("--devs", nargs="+",
+                         help="specific disks to use")
+
+        grp.add_argument("--assume-clean", action="store_false",
+                         help="don't sync after creating the array")
+        grp.add_argument("--force", action="store_true",
+                         help="force mdadm creation")
+        grp.add_argument("--zero-first", action="store_true",
+                         help="don't prompt to start the array")
+        grp.add_argument("--run", action="store_true",
+                         help="don't prompt to start the array")
+        grp.add_argument("--policy", default="resync",
+                         help="consistency policy")
+        grp.add_argument("--quiet", action="store_true",
+                         help="be quiet")
+        grp.add_argument("--thread-cnt", default=4, type=int,
+                         help="group thread count for array")
+        grp.add_argument("--cache-size", default=8192, type=int,
+                         help="cache size")
+        grp.add_argument("--journal", help="journal type")
+        grp.add_argument("--size", type=self._suffix_parse,
+                         help="size used from each disk")
 
 class MDInvalidArgumentError(Exception):
     pass
@@ -94,7 +171,7 @@ class MDInstance:
 
         return ret
 
-    def setup(self, level=5, disks=None, ram_disks=None, loop_disks=None,
+    def setup(self, level=5, devs=None, ndisks=None, disk_type=None,
               size=None, chunk_size=64 << 10, assume_clean=True, force=True,
               run=False, policy="resync", journal=None, quiet=False,
               thread_cnt=4, cache_size=8192):
@@ -102,28 +179,37 @@ class MDInstance:
         self.wait()
         self.stop()
 
-        if disks is None and ram_disks is None and loop_disks is None:
+        if (devs is None and disk_type == 'dev') or ndisks == 0:
             raise MDInvalidArgumentError("No disks specified for an array")
 
-        if ram_disks is not None:
-            if disks:
-                raise MDInvalidArgumentError("Must not specify both disks and ram_disks")
-            subprocess.check_call(["modprobe", "brd", "rd_size=131072"])
-            disks = [f"/dev/ram{i}" for i in range(ram_disks)]
+        if disk_type is None:
+            disk_type = "dev" if devs else "ram"
 
-        if loop_disks is not None:
-            if disks:
+        if disk_type == 'ram':
+            if devs:
+                raise MDInvalidArgumentError("Must not specify both devs and ram_disks")
+            subprocess.check_call(["modprobe", "brd", "rd_size=131072"])
+            devs = [f"/dev/ram{i}" for i in range(ndisks)]
+        elif disk_type == 'loopback':
+            if devs:
                 raise MDInvalidArgumentError("Must not specify both disks and loop_disks")
             if size is None:
                 raise MDInvalidArgumentError("Must specify size with loop_disks")
 
-            disks = self._create_loop_disks(loop_disks, size)
+            devs = self._create_loop_disks(ndisks, size)
             size = None
+        elif disk_type == "dev":
+            if len(devs) < ndisks:
+                raise MDInvalidArgumentError(f"Must specify at least {ndisks} devs")
+
+            devs = devs[:ndisks]
+        else:
+            raise MDInvalidArgumentError(f"Unknown disk_type: {disk_type}")
 
         mdadm_args = ["mdadm", "--create", self._md_dev,
                       "--level", str(level),
                       "--chunk", str(chunk_size >> 10),
-                      "--raid-devices", str(len(disks)),
+                      "--raid-devices", str(len(devs)),
                       "--consistency-policy", policy]
 
         if policy == "bitmap":
@@ -141,63 +227,18 @@ class MDInstance:
         if size is not None:
             mdadm_args += ["--size", str(size >> 10)]
 
-        subprocess.check_call(mdadm_args + disks)
+        subprocess.check_call(mdadm_args + devs)
 
         if thread_cnt is not None:
             (self._sysfs / "group_thread_cnt").write_text(str(thread_cnt))
         if cache_size is not None and cache_size > 0:
             (self._sysfs / "stripe_cache_size").write_text(str(cache_size))
 
-    def setup_from_args(self, args=None):
-        parser = EnvironmentArgumentParser()
-        parser.add_argument("-l", "--level", type=int, default=5,
-                            help="raid level")
-        parser.add_argument("-c", "--chunk-size", default=64 << 10,
-                            type=suffix_parse,
-                            help="md chunk size")
-
-        group = parser.add_mutually_exclusive_group()
-        group.add_argument("-d", "--disks", "--ram-disks", type=int,
-                           help="number of disks to create")
-        group.add_argument("--loop-disks", type=int,
-                           help="use loop devices instead of ram disks")
-        group.add_argument("--devs", nargs="+",
-                           help="specific disks to use")
-
-        parser.add_argument("--assume-clean", action="store_false",
-                            help="don't sync after creating the array")
-        parser.add_argument("--force", action="store_true",
-                            help="force mdadm creation")
-        parser.add_argument("--zero-first", action="store_true",
-                            help="don't prompt to start the array")
-        parser.add_argument("--run", action="store_true",
-                            help="don't prompt to start the array")
-        parser.add_argument("--policy", default="resync",
-                            help="consistency policy")
-        parser.add_argument("--quiet", action="store_true",
-                            help="be quiet")
-        parser.add_argument("--thread-cnt", default=4, type=int,
-                            help="group thread count for array")
-        parser.add_argument("--cache-size", default=8192, type=int,
-                            help="cache size")
-        parser.add_argument("--journal", help="journal type")
-        parser.add_argument("--size", type=suffix_parse,
-                            help="size used from each disk")
-
-        args = parser.parse_args(args)
-
-        if args.devs:
-            args.disks = None
-            args.loop_disks = None
-        if args.loop_disks:
-            args.disks = None
-
-        if not args.devs and not args.loop_disks and not args.disks:
-            args.disks = 3
-
+    def setup_from_parsed_args(self, args):
         self.setup(level=args.level,
-                   ram_disks=args.disks,
-                   loop_disks=args.loop_disks,
+                   devs=args.devs,
+                   ndisks=args.disks,
+                   disk_type=args.disk_type,
                    size=args.size,
                    chunk_size=args.chunk_size,
                    assume_clean=args.assume_clean,
@@ -208,6 +249,11 @@ class MDInstance:
                    quiet=args.quiet,
                    thread_cnt=args.thread_cnt,
                    cache_size=args.cache_size)
+
+    def setup_from_args(self, args=None):
+        md_parser = MDArgumentParser()
+        args = md_parser.parse_args(args)
+        self.setup_from_parsed_args(args)
 
     def get_level(self):
         return (self._sysfs / "level").read_text().strip()

@@ -30,7 +30,7 @@ def run_all_tests(env):
 
 TEST_ENVS = {
     "default":       None,
-    "loop":          {"LOOP_DISKS": "3",
+    "loop":          {"DISK_TYPE": "loopback",
                       "SIZE":       "64M"},
     "no_thread":     {"THREAD_CNT": "0"},
     "bitmap":        {"POLICY":     "bitmap"},

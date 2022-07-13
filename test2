@@ -4,7 +4,7 @@ umount /dev/md0 2>/dev/null
 
 set -e
 
-ASSUME_CLEAN=n DISKS=5 CHUNK_SIZE=64K ./setup
+ASSUME_CLEAN=n ./setup
 
 TEST_FILES="/home/logan/bigfile.c /home/logan/test_ofed /home/logan/rfile1"
 #TEST_FILES="/home/logan/test_ofed"
