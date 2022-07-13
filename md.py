@@ -45,6 +45,8 @@ class _EnvironmentArgMixin:
         if ((nargs in ("+", "*") or isinstance(nargs, int)) and
             isinstance(envval, str)):
             envval = envval.split()
+            if action.type:
+                envval = [action.type(x) for x in envval]
         if envval != "":
             action.default = envval
 
