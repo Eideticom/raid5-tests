@@ -5,6 +5,7 @@ import os
 import pathlib
 import re
 import subprocess
+import sys
 import time
 
 class _EnvironmentArgMixin:
@@ -40,7 +41,9 @@ class _EnvironmentArgMixin:
         envval = os.environ.get(env, action.default)
         if action_type == "store_true":
             envval = self.to_bool(envval)
-        if envval and kwargs.get("nargs", None) == "+":
+        nargs = kwargs.get("nargs", None)
+        if ((nargs in ("+", "*") or isinstance(nargs, int)) and
+            isinstance(envval, str)):
             envval = envval.split()
         if envval != "":
             action.default = envval
