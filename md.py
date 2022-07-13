@@ -5,6 +5,7 @@ import os
 import pathlib
 import re
 import subprocess
+import time
 
 class EnvironmentArgumentParser(argparse.ArgumentParser):
     class _CustomHelpFormatter(argparse.ArgumentDefaultsHelpFormatter):
@@ -71,6 +72,8 @@ class MDInstance:
     def stop(self):
         subprocess.call(["mdadm", "--stop", self._md_dev, "--quiet"],
                         stderr=subprocess.DEVNULL)
+        while pathlib.Path(self._md_dev).exists():
+            time.sleep(0.01)
 
     def _create_loop_disk(self, i, size):
         dev = f"/dev/loop{i}"
