@@ -4,7 +4,7 @@ set -e
 
 TEST_SIZE=${TEST_SIZE:-32K}
 
-CHUNK_SIZE=$CHUNK_SIZE DISKS=$DISKS ./setup
+./setup
 
 echo "==================" > /dev/kmsg
 dyndbg file raid5.c +p
