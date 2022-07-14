@@ -37,7 +37,7 @@ TEST_ENVS = {
     "ppl":           {"POLICY":     "ppl",
                       "NO_RESHAPE": "y"},
     "journal":       {"POLICY":     "journal",
-                      "JOURNAL":    "/dev/ram7",
+                      "JOURNAL":    "y",
                       "NO_RESHAPE": "y"},
     "raid6":         {"DISKS":      "4",
                       "LEVEL":      "6"},
@@ -46,6 +46,9 @@ TEST_ENVS = {
                       "POLICY":     "bitmap"},
     "raid4":         {"LEVEL":      "4"},
 }
+
+if "DEVS" in os.environ and os.environ["DEVS"].strip() != "":
+    del TEST_ENVS["loop"]
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

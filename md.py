@@ -127,7 +127,8 @@ class MDArgumentParser(_EnvironmentArgumentParser):
                          help="group thread count for array")
         grp.add_argument("--cache-size", default=8192, type=int,
                          help="cache size")
-        grp.add_argument("--journal", help="journal type")
+        grp.add_argument("--journal", action="store_true",
+                         help="use md journaling")
         grp.add_argument("--size", type=self._suffix_parse,
                          help="size used from each disk")
 
@@ -173,7 +174,7 @@ class MDInstance:
 
     def setup(self, level=5, devs=None, ndisks=None, disk_type=None,
               size=None, chunk_size=64 << 10, assume_clean=True, force=True,
-              run=False, policy="resync", journal=None, quiet=False,
+              run=False, policy="resync", journal=False, quiet=False,
               thread_cnt=4, cache_size=8192):
 
         self.wait()
@@ -185,31 +186,35 @@ class MDInstance:
         if disk_type is None:
             disk_type = "dev" if devs else "ram"
 
+        self.special_devs = []
+        self.extra_devs = []
+
         if disk_type == 'ram':
             if devs:
                 raise MDInvalidArgumentError("Must not specify both devs and ram_disks")
             subprocess.check_call(["modprobe", "brd", "rd_size=131072"])
-            devs = [f"/dev/ram{i}" for i in range(ndisks)]
+            self.devs = [f"/dev/ram{i}" for i in range(ndisks)]
         elif disk_type == 'loopback':
             if devs:
                 raise MDInvalidArgumentError("Must not specify both disks and loop_disks")
             if size is None:
                 raise MDInvalidArgumentError("Must specify size with loop_disks")
 
-            devs = self._create_loop_disks(ndisks, size)
+            self.devs = self._create_loop_disks(ndisks, size)
             size = None
         elif disk_type == "dev":
             if len(devs) < ndisks:
                 raise MDInvalidArgumentError(f"Must specify at least {ndisks} devs")
 
-            devs = devs[:ndisks]
+            self.extra_devs = devs[ndisks:]
+            self.devs = devs[:ndisks]
         else:
             raise MDInvalidArgumentError(f"Unknown disk_type: {disk_type}")
 
         mdadm_args = ["mdadm", "--create", self._md_dev,
                       "--level", str(level),
                       "--chunk", str(chunk_size >> 10),
-                      "--raid-devices", str(len(devs)),
+                      "--raid-devices", str(len(self.devs)),
                       "--consistency-policy", policy]
 
         if policy == "bitmap":
@@ -222,12 +227,12 @@ class MDInstance:
             mdadm_args.append("--run")
         if quiet:
             mdadm_args.append("--quiet")
-        if journal is not None:
-            mdadm_args += ["--write-journal", journal]
+        if journal:
+            mdadm_args += ["--write-journal", self.get_special_disk()]
         if size is not None:
             mdadm_args += ["--size", str(size >> 10)]
 
-        subprocess.check_call(mdadm_args + devs)
+        subprocess.check_call(mdadm_args + self.devs)
 
         if thread_cnt is not None:
             (self._sysfs / "group_thread_cnt").write_text(str(thread_cnt))
@@ -266,21 +271,30 @@ class MDInstance:
             disk = (self._sysfs / f"rd{d}" / "block").readlink().name
             yield f"/dev/{disk}"
 
-    def get_next_disk(self):
+    def _get_next_disk(self):
+        if len(self.extra_devs):
+            return self.extra_devs.pop(0)
+
         disk = (self._sysfs / "rd0" / "block").readlink().name
 
-        n = self.get_num_disks()
+        n = len(self.devs) + len(self.special_devs)
         if "ram" in disk:
             return f"/dev/ram{n}"
         if "loop" in disk:
             sectors = int((self._sysfs / "rd0" / "block" / "size").read_text())
             return self._create_loop_disk(n, sectors << 9)
 
-        raise MDInvalidArgumentError("Can't grow array with out using loop or ram disks")
+        raise MDInvalidArgumentError("Can't grow array further without using loop or ram disks")
+
+    def get_special_disk(self):
+        dev = self._get_next_disk()
+        self.special_devs.append(dev)
+        return dev
 
     def grow(self):
         self.wait()
-        dev = self.get_next_disk()
+        dev = self._get_next_disk()
+        self.devs.append(dev)
         n = self.get_num_disks()
         subprocess.check_call(["mdadm", "--add", self._md_dev,
                                "--quiet", dev])

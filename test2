@@ -5,9 +5,33 @@ umount /dev/md0 2>/dev/null
 set -e
 
 ASSUME_CLEAN=n ./setup
+SRC_DIR=$(realpath "$(dirname "${BASH_SOURCE[0]}")")
+DATA_DIR="$SRC_DIR/data"
 
-TEST_FILES="/home/logan/bigfile.c /home/logan/test_ofed /home/logan/rfile1"
-#TEST_FILES="/home/logan/test_ofed"
+if [ ! -d "$DATA_DIR" ]; then
+	mkdir -p "$DATA_DIR"
+	chmod a+rwx "$DATA_DIR"
+fi
+
+BIG_FILE="$DATA_DIR/bigfile"
+if [ ! -f "$BIG_FILE" ]; then
+	head -c 1M /dev/urandom > "$BIG_FILE"
+	chmod a+rw "$BIG_FILE"
+fi
+
+SMALL_FILE1="$DATA_DIR/sm1"
+if [ ! -f "$SMALL_FILE1" ]; then
+	head -c 4k /dev/urandom > "$SMALL_FILE1"
+	chmod a+rw "$SMALL_FILE1"
+fi
+
+SMALL_FILE2="$DATA_DIR/sm2"
+if [ ! -f "$SMALL_FILE2" ]; then
+	head -c 5432 /dev/urandom > "$SMALL_FILE2"
+	chmod a+rw "$SMALL_FILE2"
+fi
+
+TEST_FILES=("$BIG_FILE" "$SMALL_FILE1" "$SMALL_FILE2")
 
 mkfs.xfs -f /dev/md0
 
@@ -19,7 +43,7 @@ function check_file() {
 }
 
 function check_all() {
-	for t in $TEST_FILES; do
+	for t in "${TEST_FILES[@]}"; do
 		check_file "$t"
 	done
 }
@@ -27,7 +51,7 @@ function check_all() {
 function drop_cache() {
 	echo DROP CACHE
 	sync
-	drop_caches
+	echo 3 > /proc/sys/vm/drop_caches
 }
 
 function remount() {
@@ -49,7 +73,7 @@ mount /dev/md0 mnt
 pushd mnt > /dev/null
 trap atexit EXIT
 
-cp $TEST_FILES .
+cp "${TEST_FILES[@]}" .
 sync
 check_all
 drop_cache
@@ -66,12 +90,12 @@ SEQ_CNT=10
 function check_seq()
 {
 	for i in $(seq "$SEQ_CNT"); do
-		check_file /home/logan/bigfile.c "$i"
+		check_file "$BIG_FILE" "$i"
 	done
 }
 
 for i in $(seq "$SEQ_CNT"); do
-	cp /home/logan/bigfile.c "$i"
+	cp "$BIG_FILE" "$i"
 done
 
 drop_cache
