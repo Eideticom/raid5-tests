@@ -163,7 +163,7 @@ class MDInstance:
                  disk_type=None, size=None, chunk_size=64 << 10,
                  assume_clean=True, force=True, run=False, policy="resync",
                  journal=False, quiet=False, thread_cnt=4, cache_size=8192):
-        self._md_dev = f"/dev/{md}"
+        self.md_dev = f"/dev/{md}"
         self._sysfs = pathlib.Path("/sys/block") / md / "md"
 
         self.level = level
@@ -213,16 +213,16 @@ class MDInstance:
             raise MDInvalidArgumentError(f"Unknown disk_type: {disk_type}")
 
     def open_direct(self):
-        return os.open(self._md_dev, os.O_RDWR|os.O_DIRECT)
+        return os.open(self.md_dev, os.O_RDWR|os.O_DIRECT)
 
     def wait(self):
-        subprocess.call(["mdadm", "--wait", self._md_dev, "--quiet"],
+        subprocess.call(["mdadm", "--wait", self.md_dev, "--quiet"],
                         stderr=subprocess.DEVNULL)
 
     def stop(self):
-        subprocess.call(["mdadm", "--stop", self._md_dev, "--quiet"],
+        subprocess.call(["mdadm", "--stop", self.md_dev, "--quiet"],
                         stderr=subprocess.DEVNULL)
-        while pathlib.Path(self._md_dev).exists():
+        while pathlib.Path(self.md_dev).exists():
             time.sleep(0.01)
 
     def _create_loop_disk(self, i, size):
@@ -248,7 +248,7 @@ class MDInstance:
         self.wait()
         self.stop()
 
-        mdadm_args = ["mdadm", "--create", self._md_dev,
+        mdadm_args = ["mdadm", "--create", self.md_dev,
                       "--level", str(self.level),
                       "--chunk", str(self.chunk_size >> 10),
                       "--raid-devices", str(len(self.devs)),
@@ -312,19 +312,19 @@ class MDInstance:
         dev = self._get_next_disk()
         self.devs.append(dev)
         n = self.get_num_disks()
-        subprocess.check_call(["mdadm", "--add", self._md_dev,
+        subprocess.check_call(["mdadm", "--add", self.md_dev,
                                "--quiet", dev])
         subprocess.check_call(["mdadm", "--grow", "--raid-devices",
-                               str(n + 1), self._md_dev])
+                               str(n + 1), self.md_dev])
         return n + 1
 
     def degrade(self, dev):
         self.wait()
-        subprocess.check_call(["mdadm", "--manage", self._md_dev, "--quiet",
+        subprocess.check_call(["mdadm", "--manage", self.md_dev, "--quiet",
                                "--fail", dev])
-        subprocess.check_call(["mdadm", "--manage", self._md_dev, "--quiet",
+        subprocess.check_call(["mdadm", "--manage", self.md_dev, "--quiet",
                                "--remove", dev], stderr=subprocess.DEVNULL)
 
     def recover(self, dev):
-        subprocess.check_call(["mdadm", "--manage", self._md_dev, "--quiet",
+        subprocess.check_call(["mdadm", "--manage", self.md_dev, "--quiet",
                                "--add-spare", dev])
