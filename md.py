@@ -136,21 +136,93 @@ class MDInvalidArgumentError(Exception):
     pass
 
 class MDInstance:
-    def __init__(self, md="md0"):
-        self._md_dev = f"/dev/{md}"
+    @classmethod
+    def create_from_parsed_args(cls, args):
+        return cls(level=args.level,
+                   devs=args.devs,
+                   ndisks=args.disks,
+                   disk_type=args.disk_type,
+                   size=args.size,
+                   chunk_size=args.chunk_size,
+                   assume_clean=args.assume_clean,
+                   force=args.force,
+                   run=args.run or args.zero_first,
+                   policy=args.policy,
+                   journal=args.journal,
+                   quiet=args.quiet,
+                   thread_cnt=args.thread_cnt,
+                   cache_size=args.cache_size)
+
+    @classmethod
+    def create_from_args(cls, args=None):
+        md_parser = MDArgumentParser()
+        args = md_parser.parse_args(args)
+        return cls.create_from_parsed_args(args)
+
+    def __init__(self, md="md0", level=5, devs=None, ndisks=None,
+                 disk_type=None, size=None, chunk_size=64 << 10,
+                 assume_clean=True, force=True, run=False, policy="resync",
+                 journal=False, quiet=False, thread_cnt=4, cache_size=8192):
+        self.md_dev = f"/dev/{md}"
         self._sysfs = pathlib.Path("/sys/block") / md / "md"
 
+        self.level = level
+        self.ndisks = ndisks
+        self.size = size
+        self.chunk_size = chunk_size
+        self.assume_clean = assume_clean
+        self.force = force
+        self.run = run
+        self.policy = policy
+        self.journal = journal
+        self.quiet = quiet
+        self.thread_cnt = thread_cnt
+        self.cache_size =cache_size
+
+        if (devs is None and disk_type == 'dev') or ndisks == 0:
+            raise MDInvalidArgumentError("No disks specified for an array")
+
+        if disk_type is None:
+            self.disk_type = "dev" if devs else "ram"
+        else:
+            self.disk_type = disk_type
+
+        self.special_devs = []
+        self.extra_devs = []
+
+        if self.disk_type == 'ram':
+            if devs:
+                raise MDInvalidArgumentError("Must not specify both devs and ram_disks")
+            subprocess.check_call(["modprobe", "brd", "rd_size=131072"])
+            self.devs = [f"/dev/ram{i}" for i in range(ndisks)]
+        elif self.disk_type == 'loopback':
+            if devs:
+                raise MDInvalidArgumentError("Must not specify both disks and loop_disks")
+            if size is None:
+                raise MDInvalidArgumentError("Must specify size with loop_disks")
+
+            self.devs = self._create_loop_disks(ndisks, size)
+            self.size = None
+        elif self.disk_type == "dev":
+            if len(devs) < ndisks:
+                raise MDInvalidArgumentError(f"Must specify at least {ndisks} devs")
+
+            self.extra_devs = devs[ndisks:]
+            self.devs = devs[:ndisks]
+        else:
+            raise MDInvalidArgumentError(f"Unknown disk_type: {disk_type}")
+
     def open_direct(self):
-        return os.open(self._md_dev, os.O_RDWR|os.O_DIRECT)
+        return os.open(self.md_dev, os.O_RDWR|os.O_DIRECT)
 
     def wait(self):
-        subprocess.call(["mdadm", "--wait", self._md_dev, "--quiet"],
+        subprocess.call(["mdadm", "--wait", self.md_dev, "--quiet"],
                         stderr=subprocess.DEVNULL)
 
     def stop(self):
-        subprocess.call(["mdadm", "--stop", self._md_dev, "--quiet"],
+        subprocess.call(["mdadm", "--stop", self.md_dev, "--quiet"],
                         stderr=subprocess.DEVNULL)
-        while pathlib.Path(self._md_dev).exists():
+        while pathlib.Path(self.md_dev).exists():
             time.sleep(0.01)
 
     def _create_loop_disk(self, i, size):
@@ -172,93 +244,37 @@ class MDInstance:
 
         return ret
 
-    def setup(self, level=5, devs=None, ndisks=None, disk_type=None,
-              size=None, chunk_size=64 << 10, assume_clean=True, force=True,
-              run=False, policy="resync", journal=False, quiet=False,
-              thread_cnt=4, cache_size=8192):
-
+    def setup(self):
         self.wait()
         self.stop()
 
-        if (devs is None and disk_type == 'dev') or ndisks == 0:
-            raise MDInvalidArgumentError("No disks specified for an array")
-
-        if disk_type is None:
-            disk_type = "dev" if devs else "ram"
-
-        self.special_devs = []
-        self.extra_devs = []
-
-        if disk_type == 'ram':
-            if devs:
-                raise MDInvalidArgumentError("Must not specify both devs and ram_disks")
-            subprocess.check_call(["modprobe", "brd", "rd_size=131072"])
-            self.devs = [f"/dev/ram{i}" for i in range(ndisks)]
-        elif disk_type == 'loopback':
-            if devs:
-                raise MDInvalidArgumentError("Must not specify both disks and loop_disks")
-            if size is None:
-                raise MDInvalidArgumentError("Must specify size with loop_disks")
-
-            self.devs = self._create_loop_disks(ndisks, size)
-            size = None
-        elif disk_type == "dev":
-            if len(devs) < ndisks:
-                raise MDInvalidArgumentError(f"Must specify at least {ndisks} devs")
-
-            self.extra_devs = devs[ndisks:]
-            self.devs = devs[:ndisks]
-        else:
-            raise MDInvalidArgumentError(f"Unknown disk_type: {disk_type}")
-
-        mdadm_args = ["mdadm", "--create", self._md_dev,
-                      "--level", str(level),
-                      "--chunk", str(chunk_size >> 10),
+        mdadm_args = ["mdadm", "--create", self.md_dev,
+                      "--level", str(self.level),
+                      "--chunk", str(self.chunk_size >> 10),
                       "--raid-devices", str(len(self.devs)),
-                      "--consistency-policy", policy]
+                      "--consistency-policy", self.policy]
 
-        if policy == "bitmap":
+        if self.policy == "bitmap":
             mdadm_args.append("--bitmap=internal")
-        if assume_clean:
+        if self.assume_clean:
             mdadm_args.append("--assume-clean")
-        if force:
+        if self.force:
             mdadm_args.append("--force")
-        if run:
+        if self.run:
             mdadm_args.append("--run")
-        if quiet:
+        if self.quiet:
             mdadm_args.append("--quiet")
-        if journal:
+        if self.journal:
             mdadm_args += ["--write-journal", self.get_special_disk()]
-        if size is not None:
-            mdadm_args += ["--size", str(size >> 10)]
+        if self.size is not None:
+            mdadm_args += ["--size", str(self.size >> 10)]
 
         subprocess.check_call(mdadm_args + self.devs)
 
-        if thread_cnt is not None:
-            (self._sysfs / "group_thread_cnt").write_text(str(thread_cnt))
-        if cache_size is not None and cache_size > 0:
-            (self._sysfs / "stripe_cache_size").write_text(str(cache_size))
-
-    def setup_from_parsed_args(self, args):
-        self.setup(level=args.level,
-                   devs=args.devs,
-                   ndisks=args.disks,
-                   disk_type=args.disk_type,
-                   size=args.size,
-                   chunk_size=args.chunk_size,
-                   assume_clean=args.assume_clean,
-                   force=args.force,
-                   run=args.run or args.zero_first,
-                   policy=args.policy,
-                   journal=args.journal,
-                   quiet=args.quiet,
-                   thread_cnt=args.thread_cnt,
-                   cache_size=args.cache_size)
-
-    def setup_from_args(self, args=None):
-        md_parser = MDArgumentParser()
-        args = md_parser.parse_args(args)
-        self.setup_from_parsed_args(args)
+        if self.thread_cnt is not None:
+            (self._sysfs / "group_thread_cnt").write_text(str(self.thread_cnt))
+        if self.cache_size is not None and self.cache_size > 0:
+            (self._sysfs / "stripe_cache_size").write_text(str(self.cache_size))
 
     def get_level(self):
         return (self._sysfs / "level").read_text().strip()
@@ -296,19 +312,19 @@ class MDInstance:
         dev = self._get_next_disk()
         self.devs.append(dev)
         n = self.get_num_disks()
-        subprocess.check_call(["mdadm", "--add", self._md_dev,
+        subprocess.check_call(["mdadm", "--add", self.md_dev,
                                "--quiet", dev])
         subprocess.check_call(["mdadm", "--grow", "--raid-devices",
-                               str(n + 1), self._md_dev])
+                               str(n + 1), self.md_dev])
         return n + 1
 
     def degrade(self, dev):
         self.wait()
-        subprocess.check_call(["mdadm", "--manage", self._md_dev, "--quiet",
+        subprocess.check_call(["mdadm", "--manage", self.md_dev, "--quiet",
                                "--fail", dev])
-        subprocess.check_call(["mdadm", "--manage", self._md_dev, "--quiet",
+        subprocess.check_call(["mdadm", "--manage", self.md_dev, "--quiet",
                                "--remove", dev], stderr=subprocess.DEVNULL)
 
     def recover(self, dev):
-        subprocess.check_call(["mdadm", "--manage", self._md_dev, "--quiet",
+        subprocess.check_call(["mdadm", "--manage", self.md_dev, "--quiet",
                                "--add-spare", dev])
