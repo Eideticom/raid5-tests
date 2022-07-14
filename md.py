@@ -189,6 +189,7 @@ class MDInstance:
 
         self.special_devs = []
         self.extra_devs = []
+        self.disk_size = size
 
         if self.disk_type == 'ram':
             if devs:
@@ -291,14 +292,11 @@ class MDInstance:
         if len(self.extra_devs):
             return self.extra_devs.pop(0)
 
-        disk = (self._sysfs / "rd0" / "block").readlink().name
-
         n = len(self.devs) + len(self.special_devs)
-        if "ram" in disk:
+        if self.disk_type == 'ram':
             return f"/dev/ram{n}"
-        if "loop" in disk:
-            sectors = int((self._sysfs / "rd0" / "block" / "size").read_text())
-            return self._create_loop_disk(n, sectors << 9)
+        elif self.disk_type == 'loopback':
+            return self._create_loop_disk(n, self.disk_size)
 
         raise MDInvalidArgumentError("Can't grow array further without using loop or ram disks")
 
