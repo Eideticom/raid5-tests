@@ -102,7 +102,7 @@ class TestRunner:
         try:
             print("Verifying")
             subprocess.check_call(["cmp", "-b", "-n", str(VERIFICATION_SZ),
-                                   self.md_dev, self.verify_disk])
+                                   self._md.md_dev, self.verify_disk])
         except subprocess.SubprocessError:
             sys.exit(1)
 
