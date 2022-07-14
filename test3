@@ -32,7 +32,7 @@ class TestRunner:
                                    "bs=1M", f"count={count}", "oflag=direct"])
 
     def __init__(self, verify=False):
-        self._md = md.MDInstance()
+        self._md = md.MDInstance.create_from_args(["--assume-clean"])
 
         self.verify_fd = None
         if verify:
@@ -40,7 +40,7 @@ class TestRunner:
             self.zero_all_disks()
             self.verify_fd = os.open(self.verify_disk, os.O_RDWR|os.O_DIRECT)
 
-        self._md.setup_from_args(["--assume-clean"])
+        self._md.setup()
 
         self.kmsg = open("/dev/kmsg", "w")
 
