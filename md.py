@@ -197,8 +197,6 @@ class MDInstance:
                 raise MDInvalidArgumentError("Must not specify both disks and loop_disks")
             if size is None:
                 raise MDInvalidArgumentError("Must specify size with loop_disks")
-
-            self.devs = self._create_loop_disks(ndisks, size)
             self.size = None
         elif self.disk_type == "dev":
             if len(devs) < ndisks:
@@ -244,6 +242,9 @@ class MDInstance:
     def setup(self):
         self.wait()
         self.stop()
+
+        if self.disk_type == 'loopback':
+            self.devs = self._create_loop_disks(self.ndisks, self.disk_size)
 
         mdadm_args = ["mdadm", "--create", self.md_dev,
                       "--level", str(self.level),
