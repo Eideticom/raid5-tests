@@ -29,7 +29,8 @@ class TestRunner:
             count = VERIFICATION_SZ + MAX_SUPERBLOCK_SZ
             count = (count + (1 << 20) - 1) >> 20 # ALIGN_CEIL the size
             subprocess.check_call(["dd", "if=/dev/zero", f"of={dev}",
-                                   "bs=1M", f"count={count}", "oflag=direct"])
+                                   "bs=1M", f"count={count}", "oflag=direct"],
+                                  stderr=subprocess.DEVNULL)
 
     def __init__(self, verify=False):
         self._md = md.MDInstance.create_from_args(["--assume-clean"])
