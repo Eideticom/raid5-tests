@@ -127,8 +127,6 @@ class MDArgumentParser(_EnvironmentArgumentParser):
                          help="group thread count for array")
         grp.add_argument("--cache-size", default=8192, type=int,
                          help="cache size")
-        grp.add_argument("--journal", action="store_true",
-                         help="use md journaling")
         grp.add_argument("--size", type=self._suffix_parse,
                          help="size used from each disk")
 
@@ -148,7 +146,6 @@ class MDInstance:
                    force=args.force,
                    run=args.run or args.zero_first,
                    policy=args.policy,
-                   journal=args.journal,
                    quiet=args.quiet,
                    thread_cnt=args.thread_cnt,
                    cache_size=args.cache_size)
@@ -162,7 +159,7 @@ class MDInstance:
     def __init__(self, md="md0", level=5, devs=None, ndisks=None,
                  disk_type=None, size=None, chunk_size=64 << 10,
                  assume_clean=True, force=True, run=False, policy="resync",
-                 journal=False, quiet=False, thread_cnt=4, cache_size=8192):
+                 quiet=False, thread_cnt=4, cache_size=8192):
         self.md_dev = f"/dev/{md}"
         self._sysfs = pathlib.Path("/sys/block") / md / "md"
 
@@ -174,7 +171,6 @@ class MDInstance:
         self.force = force
         self.run = run
         self.policy = policy
-        self.journal = journal
         self.quiet = quiet
         self.thread_cnt = thread_cnt
         self.cache_size =cache_size
@@ -257,6 +253,8 @@ class MDInstance:
 
         if self.policy == "bitmap":
             mdadm_args.append("--bitmap=internal")
+        if self.policy == "journal":
+            mdadm_args += ["--write-journal", self.get_special_disk()]
         if self.assume_clean:
             mdadm_args.append("--assume-clean")
         if self.force:
@@ -265,8 +263,6 @@ class MDInstance:
             mdadm_args.append("--run")
         if self.quiet:
             mdadm_args.append("--quiet")
-        if self.journal:
-            mdadm_args += ["--write-journal", self.get_special_disk()]
         if self.size is not None:
             mdadm_args += ["--size", str(self.size >> 10)]
 
