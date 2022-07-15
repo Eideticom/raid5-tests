@@ -25,7 +25,7 @@ class TestRunner:
         if 'ram' in self._md.devs[0]:
             subprocess.check_call(["modprobe", "brd"])
 
-        for dev in self._md.devs:
+        for dev in self._md.devs + [self.verify_disk]:
             count = VERIFICATION_SZ + MAX_SUPERBLOCK_SZ
             count = (count + (1 << 20) - 1) >> 20 # ALIGN_CEIL the size
             subprocess.check_call(["dd", "if=/dev/zero", f"of={dev}",
