@@ -27,6 +27,14 @@ def run_all_tests(env):
     run_test(["fio", "test2.fio"], env)
     run_test(["fio", "test_4jobs.fio"], env)
 
+def run_all_quick(env):
+    run_test(["./test1"], env)
+    run_test(["./test3", "--verify", "--quick"], env)
+    run_test(["./test3", "-d", "--quick"], env)
+    if not env or env.get("NO_RESHAPE") != "y":
+        run_test(["./test3", "-g", "--quick"], env)
+    run_test(["./test2"], env)
+
 
 TEST_ENVS = {
     "default":       None,
@@ -53,6 +61,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("tests", nargs="*", help="tests to run",
                         choices=list(TEST_ENVS.keys()) + [[]])
+    parser.add_argument("-q", "--quick", action="store_true",
+                        help="quick version of the test")
     args = parser.parse_args()
 
     os.environ["ZERO_FIRST"] = "y"
@@ -64,6 +74,9 @@ if __name__ == "__main__":
     try:
         for test in args.tests:
             print(f"Running {test}:")
-            run_all_tests(TEST_ENVS[test])
+            if args.quick:
+                run_all_quick(TEST_ENVS[test])
+            else:
+                run_all_tests(TEST_ENVS[test])
     except KeyboardInterrupt:
         print()
