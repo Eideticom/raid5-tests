@@ -127,8 +127,6 @@ class MDArgumentParser(_EnvironmentArgumentParser):
                          help="group thread count for array")
         grp.add_argument("--cache-size", default=8192, type=int,
                          help="cache size")
-        grp.add_argument("--journal", action="store_true",
-                         help="use md journaling")
         grp.add_argument("--size", type=self._suffix_parse,
                          help="size used from each disk")
 
@@ -136,6 +134,10 @@ class MDInvalidArgumentError(Exception):
     pass
 
 class MDInstance:
+    # Overestimate the maximum superblock size to ensure enough of the
+    # constituent disks get zeroed. 5MB seems like a high bar.
+    MAX_SUPERBLOCK_SZ = 5 << 20
+
     @classmethod
     def create_from_parsed_args(cls, args):
         return cls(level=args.level,
@@ -148,7 +150,6 @@ class MDInstance:
                    force=args.force,
                    run=args.run or args.zero_first,
                    policy=args.policy,
-                   journal=args.journal,
                    quiet=args.quiet,
                    thread_cnt=args.thread_cnt,
                    cache_size=args.cache_size)
@@ -162,7 +163,7 @@ class MDInstance:
     def __init__(self, md="md0", level=5, devs=None, ndisks=None,
                  disk_type=None, size=None, chunk_size=64 << 10,
                  assume_clean=True, force=True, run=False, policy="resync",
-                 journal=False, quiet=False, thread_cnt=4, cache_size=8192):
+                 quiet=False, thread_cnt=4, cache_size=8192):
         self.md_dev = f"/dev/{md}"
         self._sysfs = pathlib.Path("/sys/block") / md / "md"
 
@@ -174,10 +175,10 @@ class MDInstance:
         self.force = force
         self.run = run
         self.policy = policy
-        self.journal = journal
         self.quiet = quiet
         self.thread_cnt = thread_cnt
-        self.cache_size =cache_size
+        self.cache_size = cache_size
+        self._size_to_zero = None
 
         if (devs is None and disk_type == 'dev') or ndisks == 0:
             raise MDInvalidArgumentError("No disks specified for an array")
@@ -189,6 +190,7 @@ class MDInstance:
 
         self.special_devs = []
         self.extra_devs = []
+        self.disk_size = size
 
         if self.disk_type == 'ram':
             if devs:
@@ -200,8 +202,7 @@ class MDInstance:
                 raise MDInvalidArgumentError("Must not specify both disks and loop_disks")
             if size is None:
                 raise MDInvalidArgumentError("Must specify size with loop_disks")
-
-            self.devs = self._create_loop_disks(ndisks, size)
+            self.devs = None
             self.size = None
         elif self.disk_type == "dev":
             if len(devs) < ndisks:
@@ -244,9 +245,15 @@ class MDInstance:
 
         return ret
 
-    def setup(self):
+    def _stop_and_create_disks(self):
         self.wait()
         self.stop()
+
+        if self.disk_type == 'loopback' and self.devs is None:
+            self.devs = self._create_loop_disks(self.ndisks, self.disk_size)
+
+    def setup(self):
+        self._stop_and_create_disks()
 
         mdadm_args = ["mdadm", "--create", self.md_dev,
                       "--level", str(self.level),
@@ -256,6 +263,8 @@ class MDInstance:
 
         if self.policy == "bitmap":
             mdadm_args.append("--bitmap=internal")
+        if self.policy == "journal":
+            mdadm_args += ["--write-journal", self.get_special_disk()]
         if self.assume_clean:
             mdadm_args.append("--assume-clean")
         if self.force:
@@ -264,8 +273,6 @@ class MDInstance:
             mdadm_args.append("--run")
         if self.quiet:
             mdadm_args.append("--quiet")
-        if self.journal:
-            mdadm_args += ["--write-journal", self.get_special_disk()]
         if self.size is not None:
             mdadm_args += ["--size", str(self.size >> 10)]
 
@@ -283,33 +290,55 @@ class MDInstance:
         return int((self._sysfs / "raid_disks").read_text().strip())
 
     def get_disks(self):
-        for d in range(self.get_num_disks()):
-            disk = (self._sysfs / f"rd{d}" / "block").readlink().name
-            yield f"/dev/{disk}"
+        return self.devs
+
+    def _zero_disk(self, dev):
+        subprocess.check_call(["dd", "if=/dev/zero", f"of={dev}",
+                               "bs=1M", f"count={self._size_to_zero}",
+                               "oflag=direct"],
+                              stderr=subprocess.DEVNULL)
+
+    def zero_all_disks(self, size_to_zero):
+        self._stop_and_create_disks()
+
+        count = size_to_zero + self.MAX_SUPERBLOCK_SZ
+        count = (count + (1 << 20) - 1) >> 20
+        self._size_to_zero = count
+
+        for dev in self.devs:
+            self._zero_disk(dev)
+        for dev in self.special_devs:
+            self._zero_disk(dev)
 
     def _get_next_disk(self):
+        if self.devs is None:
+            self._stop_and_create_disks()
+
         if len(self.extra_devs):
             return self.extra_devs.pop(0)
 
-        disk = (self._sysfs / "rd0" / "block").readlink().name
-
         n = len(self.devs) + len(self.special_devs)
-        if "ram" in disk:
+        if self.disk_type == 'ram':
             return f"/dev/ram{n}"
-        if "loop" in disk:
-            sectors = int((self._sysfs / "rd0" / "block" / "size").read_text())
-            return self._create_loop_disk(n, sectors << 9)
+        elif self.disk_type == 'loopback':
+            return self._create_loop_disk(n, self.disk_size)
 
         raise MDInvalidArgumentError("Can't grow array further without using loop or ram disks")
 
+    def _get_next_zeroed_disk(self):
+        disk = self._get_next_disk()
+        if self._size_to_zero is not None:
+            self._zero_disk(disk)
+        return disk
+
     def get_special_disk(self):
-        dev = self._get_next_disk()
+        dev = self._get_next_zeroed_disk()
         self.special_devs.append(dev)
         return dev
 
     def grow(self):
         self.wait()
-        dev = self._get_next_disk()
+        dev = self._get_next_zeroed_disk()
         self.devs.append(dev)
         n = self.get_num_disks()
         subprocess.check_call(["mdadm", "--add", self.md_dev,
