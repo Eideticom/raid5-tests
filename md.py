@@ -134,6 +134,10 @@ class MDInvalidArgumentError(Exception):
     pass
 
 class MDInstance:
+    # Overestimate the maximum superblock size to ensure enough of the
+    # constituent disks get zeroed. 5MB seems like a high bar.
+    MAX_SUPERBLOCK_SZ = 5 << 20
+
     @classmethod
     def create_from_parsed_args(cls, args):
         return cls(level=args.level,
@@ -173,7 +177,8 @@ class MDInstance:
         self.policy = policy
         self.quiet = quiet
         self.thread_cnt = thread_cnt
-        self.cache_size =cache_size
+        self.cache_size = cache_size
+        self._size_to_zero = None
 
         if (devs is None and disk_type == 'dev') or ndisks == 0:
             raise MDInvalidArgumentError("No disks specified for an array")
@@ -197,6 +202,7 @@ class MDInstance:
                 raise MDInvalidArgumentError("Must not specify both disks and loop_disks")
             if size is None:
                 raise MDInvalidArgumentError("Must specify size with loop_disks")
+            self.devs = None
             self.size = None
         elif self.disk_type == "dev":
             if len(devs) < ndisks:
@@ -239,12 +245,15 @@ class MDInstance:
 
         return ret
 
-    def setup(self):
+    def _stop_and_create_disks(self):
         self.wait()
         self.stop()
 
-        if self.disk_type == 'loopback':
+        if self.disk_type == 'loopback' and self.devs is None:
             self.devs = self._create_loop_disks(self.ndisks, self.disk_size)
+
+    def setup(self):
+        self._stop_and_create_disks()
 
         mdadm_args = ["mdadm", "--create", self.md_dev,
                       "--level", str(self.level),
@@ -281,11 +290,30 @@ class MDInstance:
         return int((self._sysfs / "raid_disks").read_text().strip())
 
     def get_disks(self):
-        for d in range(self.get_num_disks()):
-            disk = (self._sysfs / f"rd{d}" / "block").readlink().name
-            yield f"/dev/{disk}"
+        return self.devs
+
+    def _zero_disk(self, dev):
+        subprocess.check_call(["dd", "if=/dev/zero", f"of={dev}",
+                               "bs=1M", f"count={self._size_to_zero}",
+                               "oflag=direct"],
+                              stderr=subprocess.DEVNULL)
+
+    def zero_all_disks(self, size_to_zero):
+        self._stop_and_create_disks()
+
+        count = size_to_zero + self.MAX_SUPERBLOCK_SZ
+        count = (count + (1 << 20) - 1) >> 20
+        self._size_to_zero = count
+
+        for dev in self.devs:
+            self._zero_disk(dev)
+        for dev in self.special_devs:
+            self._zero_disk(dev)
 
     def _get_next_disk(self):
+        if self.devs is None:
+            self._stop_and_create_disks()
+
         if len(self.extra_devs):
             return self.extra_devs.pop(0)
 
@@ -297,14 +325,20 @@ class MDInstance:
 
         raise MDInvalidArgumentError("Can't grow array further without using loop or ram disks")
 
+    def _get_next_zeroed_disk(self):
+        disk = self._get_next_disk()
+        if self._size_to_zero is not None:
+            self._zero_disk(disk)
+        return disk
+
     def get_special_disk(self):
-        dev = self._get_next_disk()
+        dev = self._get_next_zeroed_disk()
         self.special_devs.append(dev)
         return dev
 
     def grow(self):
         self.wait()
-        dev = self._get_next_disk()
+        dev = self._get_next_zeroed_disk()
         self.devs.append(dev)
         n = self.get_num_disks()
         subprocess.check_call(["mdadm", "--add", self.md_dev,

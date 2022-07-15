@@ -11,26 +11,9 @@ import pathlib
 
 import md
 
-# Verify 10 MB of data
-VERIFICATION_SZ = 10 << 20
-
-# Raid superblock v1.2 consumes (256 + 2 * ndisks) bytes at a 4k offset in each
-# array device, 8k allows for arrays with up to 1920 disks which should be well
-# outside testing bounds. All other raid superblocks live and the end of each
-# disk and will not overlap with the data/zeroing range
-MAX_SUPERBLOCK_SZ = 8 << 10
-
 class TestRunner:
-    def zero_all_disks(self):
-        if 'ram' in next(self._md.get_disks()):
-            subprocess.check_call(["modprobe", "brd"])
-
-        for dev in self._md.devs:
-            count = VERIFICATION_SZ + MAX_SUPERBLOCK_SZ
-            count = (count + (1 << 20) - 1) >> 20 # ALIGN_CEIL the size
-            subprocess.check_call(["dd", "if=/dev/zero", f"of={dev}",
-                                   "bs=1M", f"count={count}", "oflag=direct"],
-                                  stderr=subprocess.DEVNULL)
+    # Verify 10 MB of data
+    VERIFICATION_SZ = 10 << 20
 
     def __init__(self, verify=False):
         self._md = md.MDInstance.create_from_args(["--assume-clean"])
@@ -38,7 +21,7 @@ class TestRunner:
         self.verify_fd = None
         if verify:
             self.verify_disk = self._md.get_special_disk()
-            self.zero_all_disks()
+            self._md.zero_all_disks(self.VERIFICATION_SZ)
             self.verify_fd = os.open(self.verify_disk, os.O_RDWR|os.O_DIRECT)
 
         self._md.setup()
@@ -102,7 +85,8 @@ class TestRunner:
     def verify(self):
         try:
             print("Verifying")
-            subprocess.check_call(["cmp", "-b", "-n", str(VERIFICATION_SZ),
+            subprocess.check_call(["cmp", "-b",
+                                   "-n", str(self.VERIFICATION_SZ),
                                    self._md.md_dev, self.verify_disk])
         except subprocess.SubprocessError:
             sys.exit(1)
