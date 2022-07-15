@@ -18,7 +18,7 @@ def run_test(test, env=None):
 def run_all_tests(env):
     run_test(["./test1"], env)
     run_test(["./test2"], env)
-    run_test(["./test3"], env)
+    run_test(["./test3", "--verify"], env)
     run_test(["./test3_all"], env)
     run_test(["./test3", "-d"], env)
     if not env or env.get("NO_RESHAPE") != "y":
