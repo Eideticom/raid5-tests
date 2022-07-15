@@ -22,7 +22,7 @@ MAX_SUPERBLOCK_SZ = 8 << 10
 
 class TestRunner:
     def zero_all_disks(self):
-        if 'ram' in next(self._md.get_disks()):
+        if 'ram' in self._md.devs[0]:
             subprocess.check_call(["modprobe", "brd"])
 
         for dev in self._md.devs:
