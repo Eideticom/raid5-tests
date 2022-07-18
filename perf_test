@@ -1,0 +1,218 @@
+#!/usr/bin/env python3
+
+from fio import FIO
+import md
+
+import argparse
+import itertools
+import json
+import os
+import subprocess as sp
+import tabulate
+import sys
+
+def bw_suffix(val):
+    suffixes = ["KiB/s", "MiB/s", "GiB/s"]
+    idx = 0
+    while val > 1024:
+        idx += 1
+        val /= 1024
+    if val > 10:
+        return f"{val:.1f} {suffixes[idx]}"
+    else:
+        return f"{val:.2f} {suffixes[idx]}"
+
+def run_fio(fio, bs, chunk_size, thread_cnt, cache_size, bw, write):
+    res = {"blocksize"   : bs,
+           "chunk_size"  : chunk_size,
+           "thread_cnt"  : thread_cnt,
+           "cache_size"  : cache_size,
+    }
+
+    rw = "write" if write else "read"
+
+    if bw:
+        fio_res = fio.run(blocksize=bs, readwrite=rw)
+        job_res = fio_res["result"]["jobs"][0][rw]
+
+        name = f"Seq {rw.capitalize()}"
+        res[f"{name} BW"] = bw_suffix(job_res["bw"])
+        if 'cpu' in fio_res:
+            res[f"CPU User"] = f"{fio_res['cpu'].user}%"
+            res[f"CPU System"] = f"{fio_res['cpu'].system}%"
+    else:
+        fio_res = fio.run(blocksize=bs, readwrite=f"rand{rw}")
+        job_res = fio_res["result"]["jobs"][0][rw]
+
+        name = f"Rnd {rw.capitalize()}"
+        res[f"{name} IOPS"] = int(job_res["iops"])
+        if 'cpu' in fio_res:
+            res[f"CPU User"] = f"{fio_res['cpu'].user}%"
+            res[f"CPU System"] = f"{fio_res['cpu'].system}%"
+
+    return res
+
+def add_peak(results, peaks, bs, key):
+    results_bs = filter(lambda x: x['blocksize'] == bs, results)
+    peak = max(results_bs, key=lambda x: x[key])
+
+    io_type = key.replace('BW', '').replace('IOPS', '').strip()
+
+    peaks.setdefault(key, {})
+    peaks[key][bs] = {'Value'      : peak[key],
+                      'chunk_size' : peak['chunk_size'],
+                      'thread_cnt' : peak['thread_cnt'],
+                      'cache_size' : peak['cache_size'],
+                     }
+    if 'CPU User' in peak:
+        peaks[key][bs].update({'CPU User'   : peak['CPU User'],
+                               'CPU System' : peak[f'CPU System'],
+                              })
+
+def pretty_print(results, title):
+    headers = list(list(results.values())[0][0].keys())
+    columns = [[list(v2.values()) for v2 in v1] for k1,v1 in results.items()]
+    columns = list(itertools.chain(*columns))
+    print(title)
+    print(tabulate.tabulate(columns, headers=headers))
+    print()
+
+if __name__ == "__main__":
+    md_parser = md.MDArgumentParser(conflict_handler="resolve")
+    md_parser.md_grp.add_argument("-c", "--chunk-size", default=[64 << 10],
+                                  nargs="+",
+                                  type=md.MDArgumentParser._suffix_parse,
+                                  help="md chunk size")
+    md_parser.md_grp.add_argument("--thread-cnt", default=[4], type=int,
+                                  nargs="+",
+                                  help="group thread count for array")
+    md_parser.md_grp.add_argument("--cache-size", default=[8192], type=int,
+                                  nargs="+", help="cache size")
+    grp = md_parser.add_argument_group("perf test arguments")
+    grp.add_argument("--output", "-o", choices=["pretty", "json"],
+                     default="pretty", help="Output format.")
+    grp.add_argument("--write", "-w", action="store_true",
+                     help="Test write.")
+    grp.add_argument("--read", "-r", action="store_true", help="Test read.")
+    grp.add_argument("--bandwidth", "--bw", nargs='+', default=[], metavar='BS',
+                     help="Blocksizes to test for sequential bandwidth.")
+    grp.add_argument("--iops", nargs='+', default=[], metavar='BS',
+                     help="Blocksizes to test for random IOPS.")
+    grp.add_argument("--cpu", action="store_true",
+                     help="Measure CPU utilization.")
+    grp.add_argument("--runtime", "-t", default="15s", help="fio runtime.")
+    grp.add_argument("--ramptime", default=0, help="fio ramptime.")
+
+    args = md_parser.parse_args()
+
+    if os.getuid() != 0:
+        sys.exit("This script must be executed as root.")
+
+    if not args.write and not args.read:
+        args.write = True
+
+    if args.bandwidth + args.iops == []:
+        args.bandwidth = ['1M']
+
+    md_options = itertools.product(args.chunk_size, args.thread_cnt,
+                                   args.cache_size)
+
+    done = 0.0
+    step = 100.0 / (len(args.chunk_size) * len(args.thread_cnt) *
+                    len(args.cache_size) * len(args.bandwidth + args.iops))
+    if args.write and args.read:
+        step /= 2
+
+    results = {x : {
+                    io : {} for io in ["write", "read"]
+                   } for x in ['BW', 'IOPS']
+              }
+    inst = md.MDInstance.create_from_parsed_args(args)
+    fio = FIO(inst.md_dev, cpu=args.cpu, runtime=args.runtime,
+              ramp_time=args.ramptime)
+
+    for chunk_size, thread_cnt, cache_size in md_options:
+            inst.chunk_size = chunk_size
+            inst.thread_cnt = thread_cnt
+            inst.cache_size = cache_size
+            inst.setup()
+
+            for bs in args.bandwidth:
+                if args.write:
+                    print(f"{done:.1f}%", end="\r")
+                    res = run_fio(fio, bs=bs, chunk_size=chunk_size,
+                                  thread_cnt=thread_cnt,
+                                  cache_size=cache_size, bw=True,
+                                  write=True)
+                    results['BW']['write'].setdefault(bs, [])
+                    results['BW']['write'][bs].append(res)
+                    done += step
+
+                if args.read:
+                    print(f"{done:.1f}%", end="\r")
+                    res = run_fio(fio, bs=bs, chunk_size=chunk_size,
+                                  thread_cnt=thread_cnt,
+                                  cache_size=cache_size, bw=True,
+                                  write=False)
+                    results['BW']['read'].setdefault(bs, [])
+                    results['BW']['read'][bs].append(res)
+                    done += step
+
+            for bs in args.iops:
+                if args.write:
+                    print(f"{done:.1f}%", end="\r")
+                    res = run_fio(fio, bs=bs, chunk_size=chunk_size,
+                                  thread_cnt=thread_cnt,
+                                  cache_size=cache_size, bw=False,
+                                  write=True)
+                    results['IOPS']['write'].setdefault(bs, [])
+                    results['IOPS']['write'][bs].append(res)
+                    done += step
+
+                if args.read:
+                    print(f"{done:.1f}%", end="\r")
+                    res = run_fio(fio, bs=bs, chunk_size=chunk_size,
+                                  thread_cnt=thread_cnt,
+                                  cache_size=cache_size, bw=False,
+                                  write=False)
+                    results['IOPS']['read'].setdefault(bs, [])
+                    results['IOPS']['read'][bs].append(res)
+                    done += step
+
+    peaks = {}
+    for bs in args.bandwidth:
+        if args.write:
+            add_peak(results['BW']['write'][bs], peaks, bs, 'Seq Write BW')
+        if args.read:
+            add_peak(results['BW']['read'][bs], peaks, bs, 'Seq Read BW')
+    for bs in args.iops:
+        if args.write:
+            add_peak(results['IOPS']['write'][bs], peaks, bs, 'Rnd Write IOPS')
+        if args.read:
+            add_peak(results['IOPS']['read'][bs], peaks, bs, 'Rnd Read IOPS')
+
+    if args.output == "pretty":
+        if args.bandwidth:
+            if args.write:
+                pretty_print(results['BW']['write'], 'Seq Write BW')
+            if args.read:
+                pretty_print(results['BW']['read'], 'Seq Read BW')
+        if args.iops:
+            if args.write:
+                pretty_print(results['IOPS']['write'], 'Rnd Write IOPS')
+            if args.read:
+                pretty_print(results['IOPS']['read'], 'Rnd Read IOPS')
+
+        print('Best configurations:')
+        headers = ['Metric', 'blocksize']
+        headers += list(list(peaks.values())[0].values())[0].keys()
+        peaks = [[[k1, k2] + list(v2.values()) for k2, v2 in v1.items()]
+                for k1, v1 in peaks.items()]
+        peaks = list(itertools.chain(*peaks))
+        print(tabulate.tabulate(peaks, headers=headers))
+    else:
+        results = {
+            'all' : results,
+            'peaks' : peaks,
+        }
+        print(json.dumps(results, indent=4))

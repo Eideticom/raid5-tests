@@ -45,6 +45,8 @@ class _EnvironmentArgMixin:
         if ((nargs in ("+", "*") or isinstance(nargs, int)) and
             isinstance(envval, str)):
             envval = envval.split()
+            if action.type:
+                envval = [action.type(x) for x in envval]
         if envval != "":
             action.default = envval
 
@@ -129,6 +131,8 @@ class MDArgumentParser(_EnvironmentArgumentParser):
                          help="cache size")
         grp.add_argument("--size", type=self._suffix_parse,
                          help="size used from each disk")
+
+        self.md_grp = grp
 
 class MDInvalidArgumentError(Exception):
     pass
