@@ -192,18 +192,21 @@ if __name__ == "__main__":
             add_peak(results['IOPS']['read'][bs], peaks, bs, 'Rnd Read IOPS')
 
     if args.output == "pretty":
+        subtitle = f'(disks:{args.disks}, level:{args.level})'
         if args.bandwidth:
             if args.write:
-                pretty_print(results['BW']['write'], 'Seq Write BW')
+                pretty_print(results['BW']['write'], f'Seq Write BW {subtitle}')
             if args.read:
-                pretty_print(results['BW']['read'], 'Seq Read BW')
+                pretty_print(results['BW']['read'], f'Seq Read BW {subtitle}')
         if args.iops:
             if args.write:
-                pretty_print(results['IOPS']['write'], 'Rnd Write IOPS')
+                pretty_print(results['IOPS']['write'],
+                             f'Rnd Write IOPS {subtitle}')
             if args.read:
-                pretty_print(results['IOPS']['read'], 'Rnd Read IOPS')
+                pretty_print(results['IOPS']['read'],
+                             f'Rnd Read IOPS {subtitle}')
 
-        print('Best configurations:')
+        print(f'Best configurations {subtitle}')
         headers = ['Metric', 'blocksize']
         headers += list(list(peaks.values())[0].values())[0].keys()
         peaks = [[[k1, k2] + list(v2.values()) for k2, v2 in v1.items()]
@@ -212,6 +215,7 @@ if __name__ == "__main__":
         print(tabulate.tabulate(peaks, headers=headers))
     else:
         results = {
+            'args' : vars(args),
             'all' : results,
             'peaks' : peaks,
         }
