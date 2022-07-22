@@ -16,7 +16,7 @@ class TestRunner:
     VERIFICATION_SZ = 10 << 20
 
     def __init__(self, verify=False):
-        self._md = md.MDInstance.create_from_args(["--assume-clean"])
+        self._md = md.MDInstance.create_from_args(["--no-assume-clean"])
 
         self.verify_fd = None
         if verify:
