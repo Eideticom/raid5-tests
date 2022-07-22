@@ -113,8 +113,10 @@ class MDArgumentParser(_EnvironmentArgumentParser):
         grp.add_argument("--devs", nargs="+",
                          help="specific disks to use")
 
-        grp.add_argument("--assume-clean", action="store_false",
+        grp.add_argument("--no-assume-clean", dest="assume-clean",
+                         action="store_false",
                          help="don't sync after creating the array")
+        grp.add_argument("--assume-clean", action="store_true", default=True)
         grp.add_argument("--force", action="store_true",
                          help="force mdadm creation")
         grp.add_argument("--zero-first", action="store_true",
