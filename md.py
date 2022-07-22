@@ -39,7 +39,7 @@ class _EnvironmentArgMixin:
             self._env_found = env
 
         envval = os.environ.get(env, action.default)
-        if action_type == "store_true":
+        if action_type in ("store_true", "store_false"):
             envval = self.to_bool(envval)
         nargs = kwargs.get("nargs", None)
         if ((nargs in ("+", "*") or isinstance(nargs, int)) and
