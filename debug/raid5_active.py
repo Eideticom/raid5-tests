@@ -31,5 +31,14 @@ if __name__ == "__main__":
         for state, lst in state_map.items():
             print(f"  -- State: {state} Count: {len(lst)}")
 
+        non_lru_stripes = []
+        for s in stripes:
+            if md.list_empty(s.lru.address_of_()):
+                non_lru_stripse.append(s)
+        print(f"Hashed Stripes not in LRU: {len(non_lru_stripes)}")
+
+        if non_lru_stripes:
+            md.print_stripe_info(conf, non_lru_stripes[0])
+
     except md.MDException as e:
         print(e)
