@@ -125,6 +125,10 @@ class TestRunner:
             if quick:
                 return
 
+    def wait_for_clean(self):
+        self.log("Waiting for clean")
+        self._md.wait()
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     group = parser.add_mutually_exclusive_group()
@@ -145,6 +149,8 @@ if __name__ == "__main__":
         if args.quick:
             cnt = 6
 
+        runner.run_random(cnt)
+        runner.wait_for_clean()
         runner.run_random(cnt)
 
         if args.grow_test:
