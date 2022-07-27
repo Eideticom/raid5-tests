@@ -192,7 +192,7 @@ if __name__ == "__main__":
             add_peak(results['IOPS']['read'][bs], peaks, bs, 'Rnd Read IOPS')
 
     if args.output == "pretty":
-        subtitle = f'(disks:{args.disks}, level:{args.level})'
+        subtitle = f'(disks:{args.disks}, level:{args.level}, cores:{os.cpu_count()})'
         if args.bandwidth:
             if args.write:
                 pretty_print(results['BW']['write'], f'Seq Write BW {subtitle}')
