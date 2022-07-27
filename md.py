@@ -133,6 +133,7 @@ class MDArgumentParser(_EnvironmentArgumentParser):
                          help="cache size")
         grp.add_argument("--size", type=self._suffix_parse,
                          help="size used from each disk")
+        grp.add_argument("--mdadm", help="mdadm executable to use")
 
         self.md_grp = grp
 
@@ -158,7 +159,8 @@ class MDInstance:
                    policy=args.policy,
                    quiet=args.quiet,
                    thread_cnt=args.thread_cnt,
-                   cache_size=args.cache_size)
+                   cache_size=args.cache_size,
+                   mdadm=args.mdadm)
 
     @classmethod
     def create_from_args(cls, args=None):
@@ -169,7 +171,7 @@ class MDInstance:
     def __init__(self, md="md0", level=5, devs=None, ndisks=None,
                  disk_type=None, size=None, chunk_size=64 << 10,
                  assume_clean=True, force=True, run=False, policy="resync",
-                 quiet=False, thread_cnt=4, cache_size=8192):
+                 quiet=False, thread_cnt=4, cache_size=8192, mdadm=None):
         self.md_dev = f"/dev/{md}"
         self._sysfs = pathlib.Path("/sys/block") / md / "md"
 
@@ -185,6 +187,7 @@ class MDInstance:
         self.thread_cnt = thread_cnt
         self.cache_size = cache_size
         self._size_to_zero = None
+        self.mdadm = mdadm or "mdadm"
 
         if (devs is None and disk_type == 'dev') or ndisks == 0:
             raise MDInvalidArgumentError("No disks specified for an array")
@@ -223,11 +226,11 @@ class MDInstance:
         return os.open(self.md_dev, os.O_RDWR|os.O_DIRECT)
 
     def wait(self):
-        subprocess.call(["mdadm", "--wait", self.md_dev, "--quiet"],
+        subprocess.call([self.mdadm, "--wait", self.md_dev, "--quiet"],
                         stderr=subprocess.DEVNULL)
 
     def stop(self):
-        subprocess.call(["mdadm", "--stop", self.md_dev, "--quiet"],
+        subprocess.call([self.mdadm, "--stop", self.md_dev, "--quiet"],
                         stderr=subprocess.DEVNULL)
         while pathlib.Path(self.md_dev).exists():
             time.sleep(0.01)
@@ -261,7 +264,7 @@ class MDInstance:
     def setup(self):
         self._stop_and_create_disks()
 
-        mdadm_args = ["mdadm", "--create", self.md_dev,
+        mdadm_args = [self.mdadm, "--create", self.md_dev,
                       "--level", str(self.level),
                       "--chunk", str(self.chunk_size >> 10),
                       "--raid-devices", str(len(self.devs)),
