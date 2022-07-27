@@ -350,19 +350,19 @@ class MDInstance:
         dev = self._get_next_zeroed_disk()
         self.devs.append(dev)
         n = self.get_num_disks()
-        subprocess.check_call(["mdadm", "--add", self.md_dev,
+        subprocess.check_call([self.mdadm, "--add", self.md_dev,
                                "--quiet", dev])
-        subprocess.check_call(["mdadm", "--grow", "--raid-devices",
+        subprocess.check_call([self.mdadm, "--grow", "--raid-devices",
                                str(n + 1), self.md_dev])
         return n + 1
 
     def degrade(self, dev):
         self.wait()
-        subprocess.check_call(["mdadm", "--manage", self.md_dev, "--quiet",
+        subprocess.check_call([self.mdadm, "--manage", self.md_dev, "--quiet",
                                "--fail", dev])
-        subprocess.check_call(["mdadm", "--manage", self.md_dev, "--quiet",
+        subprocess.check_call([self.mdadm, "--manage", self.md_dev, "--quiet",
                                "--remove", dev], stderr=subprocess.DEVNULL)
 
     def recover(self, dev):
-        subprocess.check_call(["mdadm", "--manage", self.md_dev, "--quiet",
+        subprocess.check_call([self.mdadm, "--manage", self.md_dev, "--quiet",
                                "--add-spare", dev])
