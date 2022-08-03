@@ -21,7 +21,13 @@ class TestRunner:
         self.verify_fd = None
         if verify:
             self.verify_disk = self._md.get_special_disk()
-            self._md.zero_all_disks(self.VERIFICATION_SZ)
+            min_disk_size = float('inf')
+            for dev in self._md.devs + [self.verify_disk]:
+                with open(dev) as f:
+                    disk_size = f.seek(0, os.SEEK_END)
+                    min_disk_size = min(min_disk_size, disk_size)
+            verify_size = self.VERIFICATION_SZ + min_disk_size // (8 * 1024)
+            self._md.zero_all_disks(verify_size)
             self.verify_fd = os.open(self.verify_disk, os.O_RDWR|os.O_DIRECT)
 
         self._md.setup()
