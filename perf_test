@@ -11,16 +11,23 @@ import subprocess as sp
 import tabulate
 import sys
 
-def bw_suffix(val):
-    suffixes = ["KiB/s", "MiB/s", "GiB/s"]
+def suffix(val, suffixes, base=1024):
     idx = 0
-    while val > 1024:
+    while val > base:
         idx += 1
-        val /= 1024
+        val /= base
     if val > 10:
         return f"{val:.1f} {suffixes[idx]}"
     else:
         return f"{val:.2f} {suffixes[idx]}"
+
+def bw_suffix(val):
+    suffixes = ["KiB/s", "MiB/s", "GiB/s"]
+    return suffix(val, suffixes)
+
+def iops_suffix(val):
+    suffixes = ["", "K", "M", "G"]
+    return suffix(val, suffixes, base=1000)
 
 def run_fio(fio, bs, chunk_size, thread_cnt, cache_size, bw, write):
     res = {"blocksize"   : bs,
@@ -47,8 +54,8 @@ def run_fio(fio, bs, chunk_size, thread_cnt, cache_size, bw, write):
         job_res = fio_res["result"]["jobs"][0][rw]
 
         name = f"Rnd {rw.capitalize()}"
-        res[f"{name} IOPS"] = {"suffix" : int(job_res["iops"]),
-                               "raw"    : int(job_res["iops"]),
+        res[f"{name} IOPS"] = {"suffix" : iops_suffix(job_res["iops"]),
+                               "raw"    : job_res["iops"],
         }
         if 'cpu' in fio_res:
             res[f"CPU User"] = f"{fio_res['cpu'].user}%"
