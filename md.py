@@ -366,3 +366,4 @@ class MDInstance:
     def recover(self, dev):
         subprocess.check_call([self.mdadm, "--manage", self.md_dev, "--quiet",
                                "--add-spare", dev])
+        time.sleep(0.1)
