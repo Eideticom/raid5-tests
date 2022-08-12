@@ -48,9 +48,6 @@ def run_fio(fio, bs, bw, write, offset_increment=0, rebuild=False,
         res[f"{name} BW"] = {"suffix" : bw_suffix(job_res["bw"]),
                              "raw"    : job_res["bw"]
         }
-        if 'cpu' in fio_res:
-            res[f"CPU User"] = f"{fio_res['cpu'].user}%"
-            res[f"CPU System"] = f"{fio_res['cpu'].system}%"
     else:
         fio_res = fio.run(blocksize=bs, readwrite=f"rand{rw}",
                           offset_increment=offset_increment)
@@ -60,9 +57,10 @@ def run_fio(fio, bs, bw, write, offset_increment=0, rebuild=False,
         res[f"{name} IOPS"] = {"suffix" : iops_suffix(job_res["iops"]),
                                "raw"    : job_res["iops"],
         }
-        if 'cpu' in fio_res:
-            res[f"CPU User"] = f"{fio_res['cpu'].user}%"
-            res[f"CPU System"] = f"{fio_res['cpu'].system}%"
+
+    if 'cpu' in fio_res:
+        res[f"CPU User"] = f"{fio_res['cpu'].user}%"
+        res[f"CPU System"] = f"{fio_res['cpu'].system}%"
 
     return res
 
