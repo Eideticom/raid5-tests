@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from fio import FIO
+from funccount import Funccount
 import md
 
 import argparse
@@ -8,6 +9,7 @@ import itertools
 import json
 import re
 import os
+import shutil
 import subprocess as sp
 import tabulate
 import sys
@@ -45,7 +47,8 @@ def time_to_sec(val):
         return float(number) * UNITS[unit]
     raise TypeError("Not a valid time")
 
-def run_fio(fio, bs, chunk_size, thread_cnt, cache_size, bw, write):
+def run_fio(fio, bs, chunk_size, thread_cnt, cache_size, bw, write,
+            funccount=False):
     res = {"blocksize"   : bs,
            "chunk_size"  : chunk_size,
            "thread_cnt"  : thread_cnt,
@@ -53,6 +56,11 @@ def run_fio(fio, bs, chunk_size, thread_cnt, cache_size, bw, write):
     }
 
     rw = "write" if write else "read"
+
+    if funccount and write:
+        fc = Funccount(f"raid5_make_request raid5_write_one_full_stripe",
+                       sleep=fio.args["ramp_time"])
+        fc.start()
 
     if bw:
         fio_res = fio.run(blocksize=bs, readwrite=rw)
@@ -74,6 +82,17 @@ def run_fio(fio, bs, chunk_size, thread_cnt, cache_size, bw, write):
     if 'cpu' in fio_res:
         res[f"CPU User"] = f"{fio_res['cpu'].user}%"
         res[f"CPU System"] = f"{fio_res['cpu'].system}%"
+    if funccount:
+        if write:
+            fc_res = fc.stop()
+            all = fc_res.get("raid5_make_request", 0)
+            fast = fc_res.get("raid5_write_one_full_stripe", 0)
+
+            res["Fast Path"] = fast
+            res["Slow Path"] = all - fast
+        else:
+            res["Fast Path"] = None
+            res["Slow Path"] = None
 
     return res
 
@@ -91,7 +110,11 @@ def add_peak(results, peaks, bs, key):
                      }
     if 'CPU User' in peak:
         peaks[key][bs].update({'CPU User'   : peak['CPU User'],
-                               'CPU System' : peak[f'CPU System'],
+                               'CPU System' : peak['CPU System'],
+                              })
+    if 'Fast Path' in peak:
+        peaks[key][bs].update({'Fast Path'  : peak['Fast Path'],
+                               'Slow Path'  : peak['Slow Path'],
                               })
 
 def pretty_print(results, title):
@@ -126,6 +149,8 @@ if __name__ == "__main__":
                      help="Blocksizes to test for random IOPS.")
     grp.add_argument("--cpu", action="store_true",
                      help="Measure CPU utilization.")
+    grp.add_argument("--funccount", action="store_true",
+                     help="Count slow/fast paths (requires funccount)")
     grp.add_argument("--runtime", "-t", default=15, type=time_to_sec,
                      help="fio runtime.")
     grp.add_argument("--ramptime", default=0, type=time_to_sec,
@@ -136,11 +161,17 @@ if __name__ == "__main__":
     if os.getuid() != 0:
         sys.exit("This script must be executed as root.")
 
+    if args.funccount and not shutil.which('funccount'):
+        sys.exit('Could not find funccount. Please install from https://github.com/brendangregg/perf-tools/pull/115')
+
     if not args.write and not args.read:
         args.write = True
 
     if args.bandwidth + args.iops == []:
         args.bandwidth = ['1M']
+
+    if args.read and args.funccount:
+        print('funccount is only available for writes, it will be ignored for reads.')
 
     md_options = itertools.product(args.chunk_size, args.thread_cnt,
                                    args.cache_size)
@@ -171,7 +202,7 @@ if __name__ == "__main__":
                     res = run_fio(fio, bs=bs, chunk_size=chunk_size,
                                   thread_cnt=thread_cnt,
                                   cache_size=cache_size, bw=True,
-                                  write=True)
+                                  write=True, funccount=args.funccount)
                     results['BW']['write'].setdefault(bs, [])
                     results['BW']['write'][bs].append(res)
                     done += step
@@ -181,7 +212,7 @@ if __name__ == "__main__":
                     res = run_fio(fio, bs=bs, chunk_size=chunk_size,
                                   thread_cnt=thread_cnt,
                                   cache_size=cache_size, bw=True,
-                                  write=False)
+                                  write=False, funccount=args.funccount)
                     results['BW']['read'].setdefault(bs, [])
                     results['BW']['read'][bs].append(res)
                     done += step
@@ -192,7 +223,7 @@ if __name__ == "__main__":
                     res = run_fio(fio, bs=bs, chunk_size=chunk_size,
                                   thread_cnt=thread_cnt,
                                   cache_size=cache_size, bw=False,
-                                  write=True)
+                                  write=True, funccount=args.funccount)
                     results['IOPS']['write'].setdefault(bs, [])
                     results['IOPS']['write'][bs].append(res)
                     done += step
@@ -202,7 +233,7 @@ if __name__ == "__main__":
                     res = run_fio(fio, bs=bs, chunk_size=chunk_size,
                                   thread_cnt=thread_cnt,
                                   cache_size=cache_size, bw=False,
-                                  write=False)
+                                  write=False, funccount=args.funccount)
                     results['IOPS']['read'].setdefault(bs, [])
                     results['IOPS']['read'][bs].append(res)
                     done += step
