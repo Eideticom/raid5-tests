@@ -6,6 +6,7 @@ import md
 import argparse
 import itertools
 import json
+import re
 import os
 import subprocess as sp
 import tabulate
@@ -28,6 +29,21 @@ def bw_suffix(val):
 def iops_suffix(val):
     suffixes = ["", "K", "M", "G"]
     return suffix(val, suffixes, base=1000)
+
+def time_to_sec(val):
+    UNITS = {"d":  24 * 60 * 60,
+             "h":  60 * 60,
+             "m":  60,
+             "s":  1,
+             "":   1,
+             "ms": 1e-3,
+             "us": 1e-6,
+    }
+    m = re.match(r'^(\d+)([dhms]?|ms?|us?)$', val)
+    if m:
+        number, unit = m.groups()
+        return float(number) * UNITS[unit]
+    raise TypeError("Not a valid time")
 
 def run_fio(fio, bs, chunk_size, thread_cnt, cache_size, bw, write):
     res = {"blocksize"   : bs,
@@ -110,8 +126,10 @@ if __name__ == "__main__":
                      help="Blocksizes to test for random IOPS.")
     grp.add_argument("--cpu", action="store_true",
                      help="Measure CPU utilization.")
-    grp.add_argument("--runtime", "-t", default="15s", help="fio runtime.")
-    grp.add_argument("--ramptime", default=0, help="fio ramptime.")
+    grp.add_argument("--runtime", "-t", default=15, type=time_to_sec,
+                     help="fio runtime.")
+    grp.add_argument("--ramptime", default=0, type=time_to_sec,
+                     help="fio ramptime.")
 
     args = md_parser.parse_args()
 
