@@ -6,13 +6,15 @@ import psutil
 import subprocess as sp
 
 class FIO:
+    _SIZE = 4<<30
+
     def __init__(self, path, cpu=False, executable="fio", **kargs):
         self.args = {
             "filename": path,
             "name": "md_test",
             "blocksize": 1 << 20,
             "runtime": 15,
-            "size": 4 << 30,
+            "size": self._SIZE,
             "numjobs": 16,
             "fallocate": "none",
             "time_based": 1,
@@ -21,7 +23,7 @@ class FIO:
             "direct": 1,
             "ioengine": "libaio",
             "iodepth": 2,
-            "offset_increment": "100M",
+            "offset_increment": self._SIZE,
             "output-format": "json",
         }
         self.cpu = cpu
