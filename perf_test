@@ -114,6 +114,8 @@ if __name__ == "__main__":
                      help="Measure CPU utilization.")
     grp.add_argument("--runtime", "-t", default="15s", help="fio runtime.")
     grp.add_argument("--ramptime", default=0, help="fio ramptime.")
+    grp.add_argument("--fio-size", default=4<<30, type=md_parser._suffix_parse,
+                     help="fio size")
 
     args = md_parser.parse_args()
 
@@ -141,7 +143,7 @@ if __name__ == "__main__":
               }
     inst = md.MDInstance.create_from_parsed_args(args)
     fio = FIO(inst.md_dev, cpu=args.cpu, runtime=args.runtime,
-              ramp_time=args.ramptime)
+              ramp_time=args.ramptime, size=args.fio_size)
 
     for chunk_size, thread_cnt, cache_size in md_options:
             inst.chunk_size = chunk_size
