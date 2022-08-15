@@ -29,12 +29,11 @@ def iops_suffix(val):
     suffixes = ["", "K", "M", "G"]
     return suffix(val, suffixes, base=1000)
 
-def run_fio(fio, bs, chunk_size, thread_cnt, cache_size, bw, write):
-    res = {"blocksize"   : bs,
-           "chunk_size"  : chunk_size,
-           "thread_cnt"  : thread_cnt,
-           "cache_size"  : cache_size,
-    }
+def add_setup_params(res, **kwargs):
+    res.update(kwargs)
+
+def run_fio(fio, bs, bw, write):
+    res = {"blocksize"   : bs}
 
     rw = "write" if write else "read"
 
@@ -152,20 +151,20 @@ if __name__ == "__main__":
             for bs in args.bandwidth:
                 if args.write:
                     print(f"{done:.1f}%", end="\r")
-                    res = run_fio(fio, bs=bs, chunk_size=chunk_size,
-                                  thread_cnt=thread_cnt,
-                                  cache_size=cache_size, bw=True,
-                                  write=True)
+                    res = run_fio(fio, bs=bs, bw=True, write=True)
+                    add_setup_params(res, chunk_size=chunk_size,
+                                     thread_cnt=thread_cnt,
+                                     cache_size=cache_size)
                     results['BW']['write'].setdefault(bs, [])
                     results['BW']['write'][bs].append(res)
                     done += step
 
                 if args.read:
                     print(f"{done:.1f}%", end="\r")
-                    res = run_fio(fio, bs=bs, chunk_size=chunk_size,
-                                  thread_cnt=thread_cnt,
-                                  cache_size=cache_size, bw=True,
-                                  write=False)
+                    res = run_fio(fio, bs=bs, bw=True, write=False)
+                    add_setup_params(res, chunk_size=chunk_size,
+                                     thread_cnt=thread_cnt,
+                                     cache_size=cache_size)
                     results['BW']['read'].setdefault(bs, [])
                     results['BW']['read'][bs].append(res)
                     done += step
@@ -173,20 +172,20 @@ if __name__ == "__main__":
             for bs in args.iops:
                 if args.write:
                     print(f"{done:.1f}%", end="\r")
-                    res = run_fio(fio, bs=bs, chunk_size=chunk_size,
-                                  thread_cnt=thread_cnt,
-                                  cache_size=cache_size, bw=False,
-                                  write=True)
+                    res = run_fio(fio, bs=bs, bw=False, write=True)
+                    add_setup_params(res, chunk_size=chunk_size,
+                                     thread_cnt=thread_cnt,
+                                     cache_size=cache_size)
                     results['IOPS']['write'].setdefault(bs, [])
                     results['IOPS']['write'][bs].append(res)
                     done += step
 
                 if args.read:
                     print(f"{done:.1f}%", end="\r")
-                    res = run_fio(fio, bs=bs, chunk_size=chunk_size,
-                                  thread_cnt=thread_cnt,
-                                  cache_size=cache_size, bw=False,
-                                  write=False)
+                    res = run_fio(fio, bs=bs, bw=False, write=False)
+                    add_setup_params(res, chunk_size=chunk_size,
+                                     thread_cnt=thread_cnt,
+                                     cache_size=cache_size)
                     results['IOPS']['read'].setdefault(bs, [])
                     results['IOPS']['read'][bs].append(res)
                     done += step
