@@ -32,10 +32,14 @@ def iops_suffix(val):
 def add_setup_params(res, **kwargs):
     res.update(kwargs)
 
-def run_fio(fio, bs, bw, write):
+def run_fio(fio, bs, bw, write, rebuild=False, md_inst=None):
     res = {"blocksize"   : bs}
 
     rw = "write" if write else "read"
+
+    if rebuild and md_inst:
+        md_inst.degrade(md_inst.devs[0])
+        md_inst.recover(md_inst.devs[0])
 
     if bw:
         fio_res = fio.run(blocksize=bs, readwrite=rw)
@@ -113,6 +117,8 @@ if __name__ == "__main__":
                      help="Measure CPU utilization.")
     grp.add_argument("--runtime", "-t", default="15s", help="fio runtime.")
     grp.add_argument("--ramptime", default=0, help="fio ramptime.")
+    grp.add_argument("--rebuild", action="store_true",
+                     help="measure performance during rebuild.")
 
     args = md_parser.parse_args()
 
@@ -146,12 +152,13 @@ if __name__ == "__main__":
             inst.chunk_size = chunk_size
             inst.thread_cnt = thread_cnt
             inst.cache_size = cache_size
-            inst.setup()
+            inst.setup(wait=False)
 
             for bs in args.bandwidth:
                 if args.write:
                     print(f"{done:.1f}%", end="\r")
-                    res = run_fio(fio, bs=bs, bw=True, write=True)
+                    res = run_fio(fio, bs=bs, bw=True, write=True,
+                                  rebuild=args.rebuild, md_inst=inst)
                     add_setup_params(res, chunk_size=chunk_size,
                                      thread_cnt=thread_cnt,
                                      cache_size=cache_size)
@@ -159,9 +166,13 @@ if __name__ == "__main__":
                     results['BW']['write'][bs].append(res)
                     done += step
 
+                    if args.rebuild:
+                        inst.setup(wait=False)
+
                 if args.read:
                     print(f"{done:.1f}%", end="\r")
-                    res = run_fio(fio, bs=bs, bw=True, write=False)
+                    res = run_fio(fio, bs=bs, bw=True, write=False,
+                                  rebuild=args.rebuild, md_inst=inst)
                     add_setup_params(res, chunk_size=chunk_size,
                                      thread_cnt=thread_cnt,
                                      cache_size=cache_size)
@@ -169,10 +180,14 @@ if __name__ == "__main__":
                     results['BW']['read'][bs].append(res)
                     done += step
 
+                    if args.rebuild:
+                        inst.setup(wait=False)
+
             for bs in args.iops:
                 if args.write:
                     print(f"{done:.1f}%", end="\r")
-                    res = run_fio(fio, bs=bs, bw=False, write=True)
+                    res = run_fio(fio, bs=bs, bw=False, write=True,
+                                  rebuild=args.rebuild, md_inst=inst)
                     add_setup_params(res, chunk_size=chunk_size,
                                      thread_cnt=thread_cnt,
                                      cache_size=cache_size)
@@ -180,15 +195,22 @@ if __name__ == "__main__":
                     results['IOPS']['write'][bs].append(res)
                     done += step
 
+                    if args.rebuild:
+                        inst.setup(wait=False)
+
                 if args.read:
                     print(f"{done:.1f}%", end="\r")
-                    res = run_fio(fio, bs=bs, bw=False, write=False)
+                    res = run_fio(fio, bs=bs, bw=False, write=False,
+                                  rebuild=args.rebuild, md_inst=inst)
                     add_setup_params(res, chunk_size=chunk_size,
                                      thread_cnt=thread_cnt,
                                      cache_size=cache_size)
                     results['IOPS']['read'].setdefault(bs, [])
                     results['IOPS']['read'][bs].append(res)
                     done += step
+
+                    if args.rebuild:
+                        inst.setup(wait=False)
 
     peaks = {}
     for bs in args.bandwidth:
@@ -203,7 +225,7 @@ if __name__ == "__main__":
             add_peak(results['IOPS']['read'][bs], peaks, bs, 'Rnd Read IOPS')
 
     if args.output == "pretty":
-        subtitle = f'(disks:{args.disks}, level:{args.level}, cores:{os.cpu_count()})'
+        subtitle = f'(disks:{args.disks}, level:{args.level}, cores:{os.cpu_count()}, rebuild:{args.rebuild})'
         if args.bandwidth:
             if args.write:
                 pretty_print(results['BW']['write'], f'Seq Write BW {subtitle}')
