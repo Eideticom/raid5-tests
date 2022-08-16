@@ -254,15 +254,16 @@ class MDInstance:
 
         return ret
 
-    def _stop_and_create_disks(self):
-        self.wait()
+    def _stop_and_create_disks(self, wait=True):
+        if wait:
+            self.wait()
         self.stop()
 
         if self.disk_type == 'loopback' and self.devs is None:
             self.devs = self._create_loop_disks(self.ndisks, self.disk_size)
 
-    def setup(self):
-        self._stop_and_create_disks()
+    def setup(self, wait=True):
+        self._stop_and_create_disks(wait)
 
         mdadm_args = [self.mdadm, "--create", self.md_dev,
                       "--level", str(self.level),
