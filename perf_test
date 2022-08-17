@@ -39,24 +39,27 @@ def run_fio(fio, bs, bw, write, offset_increment=0, rebuild=False,
         md_inst.degrade(md_inst.devs[0])
         md_inst.recover(md_inst.devs[0])
 
-    if bw:
-        fio_res = fio.run(blocksize=bs, readwrite=rw,
-                          offset_increment=offset_increment)
-        job_res = fio_res["result"]["jobs"][0][rw]
+    try:
+        if bw:
+            fio_res = fio.run(blocksize=bs, readwrite=rw,
+                              offset_increment=offset_increment)
+            job_res = fio_res["result"]["jobs"][0][rw]
 
-        name = f"Seq {rw.capitalize()}"
-        res[f"{name} BW"] = {"suffix" : bw_suffix(job_res["bw"]),
-                             "raw"    : job_res["bw"]
-        }
-    else:
-        fio_res = fio.run(blocksize=bs, readwrite=f"rand{rw}",
-                          offset_increment=offset_increment)
-        job_res = fio_res["result"]["jobs"][0][rw]
+            name = f"Seq {rw.capitalize()}"
+            res[f"{name} BW"] = {"suffix" : bw_suffix(job_res["bw"]),
+                                 "raw"    : job_res["bw"]
+            }
+        else:
+            fio_res = fio.run(blocksize=bs, readwrite=f"rand{rw}",
+                              offset_increment=offset_increment)
+            job_res = fio_res["result"]["jobs"][0][rw]
 
-        name = f"Rnd {rw.capitalize()}"
-        res[f"{name} IOPS"] = {"suffix" : iops_suffix(job_res["iops"]),
-                               "raw"    : job_res["iops"],
-        }
+            name = f"Rnd {rw.capitalize()}"
+            res[f"{name} IOPS"] = {"suffix" : iops_suffix(job_res["iops"]),
+                                   "raw"    : job_res["iops"],
+            }
+    except Exception as e:
+        sys.exit(e)
 
     if 'cpu' in fio_res:
         res[f"CPU User"] = f"{fio_res['cpu'].user}%"
