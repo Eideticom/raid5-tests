@@ -29,7 +29,8 @@ def iops_suffix(val):
     suffixes = ["", "K", "M", "G"]
     return suffix(val, suffixes, base=1000)
 
-def run_fio(fio, bs, chunk_size, thread_cnt, cache_size, bw, write):
+def run_fio(fio, bs, chunk_size, thread_cnt, cache_size, bw, write,
+            offset_increment=0):
     res = {"blocksize"   : bs,
            "chunk_size"  : chunk_size,
            "thread_cnt"  : thread_cnt,
@@ -39,7 +40,8 @@ def run_fio(fio, bs, chunk_size, thread_cnt, cache_size, bw, write):
     rw = "write" if write else "read"
 
     if bw:
-        fio_res = fio.run(blocksize=bs, readwrite=rw)
+        fio_res = fio.run(blocksize=bs, readwrite=rw,
+                          offset_increment=offset_increment)
         job_res = fio_res["result"]["jobs"][0][rw]
 
         name = f"Seq {rw.capitalize()}"
@@ -50,7 +52,8 @@ def run_fio(fio, bs, chunk_size, thread_cnt, cache_size, bw, write):
             res[f"CPU User"] = f"{fio_res['cpu'].user}%"
             res[f"CPU System"] = f"{fio_res['cpu'].system}%"
     else:
-        fio_res = fio.run(blocksize=bs, readwrite=f"rand{rw}")
+        fio_res = fio.run(blocksize=bs, readwrite=f"rand{rw}",
+                          offset_increment=offset_increment)
         job_res = fio_res["result"]["jobs"][0][rw]
 
         name = f"Rnd {rw.capitalize()}"
@@ -114,6 +117,8 @@ if __name__ == "__main__":
                      help="Measure CPU utilization.")
     grp.add_argument("--runtime", "-t", default="15s", help="fio runtime.")
     grp.add_argument("--ramptime", default=0, help="fio ramptime.")
+    grp.add_argument("--fio-size", default=4<<30, type=md_parser._suffix_parse,
+                     help="fio size")
 
     args = md_parser.parse_args()
 
@@ -141,7 +146,7 @@ if __name__ == "__main__":
               }
     inst = md.MDInstance.create_from_parsed_args(args)
     fio = FIO(inst.md_dev, cpu=args.cpu, runtime=args.runtime,
-              ramp_time=args.ramptime)
+              ramp_time=args.ramptime, size=args.fio_size)
 
     for chunk_size, thread_cnt, cache_size in md_options:
             inst.chunk_size = chunk_size
@@ -149,13 +154,28 @@ if __name__ == "__main__":
             inst.cache_size = cache_size
             inst.setup()
 
+            if args.level == 5:
+                stripe_size = chunk_size * (args.disks - 1)
+            elif args.level == 6:
+                stripe_size = chunk_size * (args.disks - 2)
+            else:
+                stripe_size = 0
+
+            if stripe_size:
+                offset_increment = ((args.fio_size + stripe_size - 1)
+                                    // stripe_size
+                                    * stripe_size)
+            else:
+                offset_increment = args.fio_size
+
             for bs in args.bandwidth:
                 if args.write:
                     print(f"{done:.1f}%", end="\r")
                     res = run_fio(fio, bs=bs, chunk_size=chunk_size,
                                   thread_cnt=thread_cnt,
                                   cache_size=cache_size, bw=True,
-                                  write=True)
+                                  write=True,
+                                  offset_increment=offset_increment)
                     results['BW']['write'].setdefault(bs, [])
                     results['BW']['write'][bs].append(res)
                     done += step
@@ -165,7 +185,8 @@ if __name__ == "__main__":
                     res = run_fio(fio, bs=bs, chunk_size=chunk_size,
                                   thread_cnt=thread_cnt,
                                   cache_size=cache_size, bw=True,
-                                  write=False)
+                                  write=False,
+                                  offset_increment=offset_increment)
                     results['BW']['read'].setdefault(bs, [])
                     results['BW']['read'][bs].append(res)
                     done += step
@@ -176,7 +197,8 @@ if __name__ == "__main__":
                     res = run_fio(fio, bs=bs, chunk_size=chunk_size,
                                   thread_cnt=thread_cnt,
                                   cache_size=cache_size, bw=False,
-                                  write=True)
+                                  write=True,
+                                  offset_increment=offset_increment)
                     results['IOPS']['write'].setdefault(bs, [])
                     results['IOPS']['write'][bs].append(res)
                     done += step
@@ -186,7 +208,8 @@ if __name__ == "__main__":
                     res = run_fio(fio, bs=bs, chunk_size=chunk_size,
                                   thread_cnt=thread_cnt,
                                   cache_size=cache_size, bw=False,
-                                  write=False)
+                                  write=False,
+                                  offset_increment=offset_increment)
                     results['IOPS']['read'].setdefault(bs, [])
                     results['IOPS']['read'][bs].append(res)
                     done += step
