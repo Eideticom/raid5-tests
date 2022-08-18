@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 
 from fio import FIO
+import funccount
 import md
 
 import argparse
 import itertools
 import json
+import re
 import os
 import subprocess as sp
 import tabulate
@@ -29,8 +31,37 @@ def iops_suffix(val):
     suffixes = ["", "K", "M", "G"]
     return suffix(val, suffixes, base=1000)
 
+def time_to_sec(val):
+    UNITS = {"d":  24 * 60 * 60,
+             "h":  60 * 60,
+             "m":  60,
+             "s":  1,
+             "":   1,
+             "ms": 1e-3,
+             "us": 1e-6,
+    }
+    m = re.match(r'^(\d+)([dhms]?|ms?|us?)$', val)
+    if m:
+        number, unit = m.groups()
+        return float(number) * UNITS[unit]
+    raise TypeError("Not a valid time")
+
+def setup_funccount(enable_fc, read, write):
+    if not enable_fc:
+        return None
+
+    if read:
+        print('funccount is only available for writes, it will be ignored for reads.',
+              file=sys.stderr)
+
+    if write:
+        funcs = 'raid5_make_request raid5_write_one_full_stripe'
+        return funccount.Funccount(funcs, sleep=args.ramptime)
+
+    return None
+
 def run_fio(fio, bs, bw, write, offset_increment=0, rebuild=False,
-            md_inst=None):
+            md_inst=None, fc=None):
     res = {"blocksize" : bs}
 
     rw = "write" if write else "read"
@@ -39,30 +70,52 @@ def run_fio(fio, bs, bw, write, offset_increment=0, rebuild=False,
         md_inst.degrade(md_inst.devs[0])
         md_inst.recover(md_inst.devs[0])
 
-    if bw:
-        fio_res = fio.run(blocksize=bs, readwrite=rw,
-                          offset_increment=offset_increment)
-        job_res = fio_res["result"]["jobs"][0][rw]
+    if fc:
+        fc.start()
 
-        name = f"Seq {rw.capitalize()}"
-        res[f"{name} BW"] = {"suffix" : bw_suffix(job_res["bw"]),
-                             "raw"    : job_res["bw"]
-        }
-        if 'cpu' in fio_res:
-            res[f"CPU User"] = f"{fio_res['cpu'].user}%"
-            res[f"CPU System"] = f"{fio_res['cpu'].system}%"
-    else:
-        fio_res = fio.run(blocksize=bs, readwrite=f"rand{rw}",
-                          offset_increment=offset_increment)
-        job_res = fio_res["result"]["jobs"][0][rw]
+    try:
+        if bw:
+            fio_res = fio.run(blocksize=bs, readwrite=rw,
+                              offset_increment=offset_increment)
+            job_res = fio_res["result"]["jobs"][0][rw]
 
-        name = f"Rnd {rw.capitalize()}"
-        res[f"{name} IOPS"] = {"suffix" : iops_suffix(job_res["iops"]),
-                               "raw"    : job_res["iops"],
-        }
-        if 'cpu' in fio_res:
-            res[f"CPU User"] = f"{fio_res['cpu'].user}%"
-            res[f"CPU System"] = f"{fio_res['cpu'].system}%"
+            name = f"Seq {rw.capitalize()}"
+            res[f"{name} BW"] = {"suffix" : bw_suffix(job_res["bw"]),
+                                 "raw"    : job_res["bw"]
+            }
+        else:
+            fio_res = fio.run(blocksize=bs, readwrite=f"rand{rw}",
+                              offset_increment=offset_increment)
+            job_res = fio_res["result"]["jobs"][0][rw]
+
+            name = f"Rnd {rw.capitalize()}"
+            res[f"{name} IOPS"] = {"suffix" : iops_suffix(job_res["iops"]),
+                                   "raw"    : job_res["iops"],
+            }
+    except FileNotFoundError:
+        sys.exit('Could not find fio.')
+
+    if fc:
+        try:
+            fc_res = fc.stop()
+            all = fc_res.get("raid5_make_request", 0)
+            fast = fc_res.get("raid5_write_one_full_stripe", 0)
+
+            res["Fast Path"] = fast
+            res["Slow Path"] = all - fast
+        except sp.SubprocessError as e:
+            print(f'funccount failed:\n\nstdout:\n{e.stdout}\n\nstderr:{e.stderr}',
+                  file=sys.stderr)
+            res["Fast Path"] = None
+            res["Slow Path"] = None
+        except funccount.FunccountNotStartedError as e:
+            print(e, file=sys.stderr)
+            res["Fast Path"] = None
+            res["Slow Path"] = None
+
+    if 'cpu' in fio_res:
+        res[f"CPU User"] = f"{fio_res['cpu'].user}%"
+        res[f"CPU System"] = f"{fio_res['cpu'].system}%"
 
     return res
 
@@ -80,7 +133,11 @@ def add_peak(results, peaks, bs, key):
                      }
     if 'CPU User' in peak:
         peaks[key][bs].update({'CPU User'   : peak['CPU User'],
-                               'CPU System' : peak[f'CPU System'],
+                               'CPU System' : peak['CPU System'],
+                              })
+    if 'Fast Path' in peak:
+        peaks[key][bs].update({'Fast Path'  : peak['Fast Path'],
+                               'Slow Path'  : peak['Slow Path'],
                               })
 
 def pretty_print(results, title):
@@ -115,8 +172,12 @@ if __name__ == "__main__":
                      help="Blocksizes to test for random IOPS.")
     grp.add_argument("--cpu", action="store_true",
                      help="Measure CPU utilization.")
-    grp.add_argument("--runtime", "-t", default="15s", help="fio runtime.")
-    grp.add_argument("--ramptime", default=0, help="fio ramptime.")
+    grp.add_argument("--funccount", action="store_true",
+                     help="Count slow/fast paths (requires funccount)")
+    grp.add_argument("--runtime", "-t", default=15, type=time_to_sec,
+                     help="fio runtime.")
+    grp.add_argument("--ramptime", default=0, type=time_to_sec,
+                     help="fio ramptime.")
     grp.add_argument("--fio-size", default=4<<30, type=md_parser._suffix_parse,
                      help="fio size")
     grp.add_argument("--rebuild", action="store_true",
@@ -132,6 +193,16 @@ if __name__ == "__main__":
 
     if args.bandwidth + args.iops == []:
         args.bandwidth = ['1M']
+
+    try:
+        fc = setup_funccount(args.funccount, args.read, args.write)
+    except funccount.FunccountInvalidFunctionError as e:
+        print(f'Failed to setup funccount: {e}', file=sys.stderr)
+        fc = None
+    except FileNotFoundError as e:
+        print('Could not find funccount. Please install from https://github.com/brendangregg/perf-tools/pull/115',
+              file=sys.stderr)
+        fc = None
 
     md_options = itertools.product(args.chunk_size, args.thread_cnt,
                                    args.cache_size)
@@ -175,7 +246,7 @@ if __name__ == "__main__":
                     print(f"{done:.1f}%", end="\r")
                     res = run_fio(fio, bs=bs, bw=True, write=True,
                                   offset_increment=offset_increment,
-                                  rebuild=args.rebuild, md_inst=inst)
+                                  rebuild=args.rebuild, md_inst=inst, fc=fc)
                     res.update(dict(chunk_size=chunk_size,
                                     thread_cnt=thread_cnt,
                                     cache_size=cache_size))
@@ -190,7 +261,7 @@ if __name__ == "__main__":
                     print(f"{done:.1f}%", end="\r")
                     res = run_fio(fio, bs=bs, bw=True, write=False,
                                   offset_increment=offset_increment,
-                                  rebuild=args.rebuild, md_inst=inst)
+                                  rebuild=args.rebuild, md_inst=inst, fc=None)
                     res.update(dict(chunk_size=chunk_size,
                                     thread_cnt=thread_cnt,
                                     cache_size=cache_size))
@@ -206,7 +277,7 @@ if __name__ == "__main__":
                     print(f"{done:.1f}%", end="\r")
                     res = run_fio(fio, bs=bs, bw=False, write=True,
                                   offset_increment=offset_increment,
-                                  rebuild=args.rebuild, md_inst=inst)
+                                  rebuild=args.rebuild, md_inst=inst, fc=fc)
                     res.update(dict(chunk_size=chunk_size,
                                     thread_cnt=thread_cnt,
                                     cache_size=cache_size))
@@ -221,7 +292,7 @@ if __name__ == "__main__":
                     print(f"{done:.1f}%", end="\r")
                     res = run_fio(fio, bs=bs, bw=False, write=False,
                                   offset_increment=offset_increment,
-                                  rebuild=args.rebuild, md_inst=inst)
+                                  rebuild=args.rebuild, md_inst=inst, fc=None)
                     res.update(dict(chunk_size=chunk_size,
                                     thread_cnt=thread_cnt,
                                     cache_size=cache_size))
