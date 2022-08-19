@@ -134,6 +134,8 @@ class MDArgumentParser(_EnvironmentArgumentParser):
         grp.add_argument("--size", type=self._suffix_parse,
                          help="size used from each disk")
         grp.add_argument("--mdadm", help="mdadm executable to use")
+        grp.add_argument("--mkfs", choices=["xfs", "ext4"], default=None,
+                         help="Format and mount filesystem (on /mnt)")
 
         self.md_grp = grp
 
@@ -160,7 +162,8 @@ class MDInstance:
                    quiet=args.quiet,
                    thread_cnt=args.thread_cnt,
                    cache_size=args.cache_size,
-                   mdadm=args.mdadm)
+                   mdadm=args.mdadm,
+                   mkfs=args.mkfs)
 
     @classmethod
     def create_from_args(cls, args=None):
@@ -171,7 +174,8 @@ class MDInstance:
     def __init__(self, md="md0", level=5, devs=None, ndisks=None,
                  disk_type=None, size=None, chunk_size=64 << 10,
                  assume_clean=True, force=True, run=False, policy="resync",
-                 quiet=False, thread_cnt=4, cache_size=8192, mdadm=None):
+                 quiet=False, thread_cnt=4, cache_size=8192, mdadm=None,
+                 mkfs=None):
         self.md_dev = f"/dev/{md}"
         self._sysfs = pathlib.Path("/sys/block") / md / "md"
 
@@ -188,6 +192,7 @@ class MDInstance:
         self.cache_size = cache_size
         self._size_to_zero = None
         self.mdadm = mdadm or "mdadm"
+        self.mkfs = mkfs
 
         if (devs is None and disk_type == 'dev') or ndisks == 0:
             raise MDInvalidArgumentError("No disks specified for an array")
@@ -255,6 +260,9 @@ class MDInstance:
         return ret
 
     def _stop_and_create_disks(self, wait=True):
+        if self.mkfs:
+            subprocess.call(["umount", "/mnt"], stderr=subprocess.DEVNULL)
+
         if wait:
             self.wait()
         self.stop()
@@ -292,6 +300,15 @@ class MDInstance:
             (self._sysfs / "group_thread_cnt").write_text(str(self.thread_cnt))
         if self.cache_size is not None and self.cache_size > 0:
             (self._sysfs / "stripe_cache_size").write_text(str(self.cache_size))
+
+        if self.mkfs:
+            if self.mkfs == "xfs":
+                subprocess.check_call(["mkfs.xfs", "-f", self.md_dev],
+                                      stdout=subprocess.DEVNULL)
+            else:
+                subprocess.check_call(["mkfs.ext4", "-F", self.md_dev],
+                                      stdout=subprocess.DEVNULL)
+            subprocess.check_call(["mount", self.md_dev, "/mnt"])
 
     def get_level(self):
         return (self._sysfs / "level").read_text().strip()

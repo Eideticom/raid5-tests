@@ -70,24 +70,43 @@ def run_fio(fio, bs, bw, write,
 
     res = {"blocksize"   : bs}
 
+    if write:
+        numa_cpu_nodes = "0-3"
+        numa_mem_policy = "local"
+    else:
+        numa_cpu_nodes = "1,2,4,7"
+        numa_mem_policy = "bind:1"
+
     if bw:
         fio_res = fio.run(blocksize=bs, readwrite=rw,
-                          offset_increment=offset_increment)
-        job_res = fio_res["result"]["jobs"][0][rw]
+                          offset_increment=offset_increment,
+                          numa_cpu_nodes=numa_cpu_nodes,
+                          numa_mem_policy=numa_mem_policy)
+        try:
+            job_res = fio_res["result"]["jobs"][0][rw]
+            name = f"Seq {rw.capitalize()}"
+            res[f"{name} BW"] = {"suffix" : bw_suffix(job_res["bw"]),
+                                 "raw"    : job_res["bw"]
+            }
+        except Exception as e:
+            print(e)
+            return None
 
-        name = f"Seq {rw.capitalize()}"
-        res[f"{name} BW"] = {"suffix" : bw_suffix(job_res["bw"]),
-                             "raw"    : job_res["bw"]
-        }
+        print(bw_suffix(job_res["bw"]))
     else:
         fio_res = fio.run(blocksize=bs, readwrite=f"rand{rw}",
-                          offset_increment=offset_increment)
-        job_res = fio_res["result"]["jobs"][0][rw]
+                          offset_increment=offset_increment,
+                          numa_cpu_nodes=numa_cpu_nodes,
+                          numa_mem_policy=numa_mem_policy)
+        try:
+            job_res = fio_res["result"]["jobs"][0][rw]
+            name = f"Rnd {rw.capitalize()}"
+            res[f"{name} IOPS"] = {"suffix" : iops_suffix(job_res["iops"]),
+                                   "raw"    : job_res["iops"],
+            }
+        except:
+            return None
 
-        name = f"Rnd {rw.capitalize()}"
-        res[f"{name} IOPS"] = {"suffix" : iops_suffix(job_res["iops"]),
-                               "raw"    : job_res["iops"],
-        }
 
     if 'cpu' in fio_res:
         res[f"CPU User"] = f"{fio_res['cpu'].user}%"
@@ -201,8 +220,14 @@ if __name__ == "__main__":
                    } for x in ['BW', 'IOPS']
               }
     inst = md.MDInstance.create_from_parsed_args(args)
-    fio = FIO(inst.md_dev, cpu=args.cpu, runtime=args.runtime,
-              ramp_time=args.ramptime, size=args.fio_size)
+    if args.mkfs:
+        fio = FIO(directory="/mnt", executable='/opt/iomartin/fio/fio',
+                  cpu=args.cpu, runtime=args.runtime,
+                  ramp_time=args.ramptime, size=args.fio_size)
+    else:
+        fio = FIO(filename=inst.md_dev, executable='/opt/iomartin/fio/fio',
+                  cpu=args.cpu, runtime=args.runtime,
+                  ramp_time=args.ramptime, size=args.fio_size)
 
     for chunk_size, thread_cnt, cache_size in md_options:
             inst.chunk_size = chunk_size
@@ -217,7 +242,9 @@ if __name__ == "__main__":
             else:
                 stripe_size = 0
 
-            if stripe_size:
+            if args.mkfs:
+                offset_increment = 0
+            elif stripe_size:
                 offset_increment = ((args.fio_size + stripe_size - 1)
                                     // stripe_size
                                     * stripe_size)
@@ -231,6 +258,8 @@ if __name__ == "__main__":
                                   funccount=args.funccount,
                                   offset_increment=offset_increment,
                                   rebuild=args.rebuild, md_inst=inst)
+                    if res is None:
+                        break
                     add_setup_params(res, chunk_size=chunk_size,
                                      thread_cnt=thread_cnt,
                                      cache_size=cache_size)
@@ -247,6 +276,8 @@ if __name__ == "__main__":
                                   funccount=False,
                                   offset_increment=offset_increment,
                                   rebuild=args.rebuild, md_inst=inst)
+                    if res is None:
+                        break
                     add_setup_params(res, chunk_size=chunk_size,
                                      thread_cnt=thread_cnt,
                                      cache_size=cache_size)
@@ -264,6 +295,8 @@ if __name__ == "__main__":
                                   funccount=args.funccount,
                                   offset_increment=offset_increment,
                                   rebuild=args.rebuild, md_inst=inst)
+                    if res is None:
+                        break
                     add_setup_params(res, chunk_size=chunk_size,
                                      thread_cnt=thread_cnt,
                                      cache_size=cache_size)
@@ -280,6 +313,8 @@ if __name__ == "__main__":
                                   funccount=False,
                                   offset_increment=offset_increment,
                                   rebuild=args.rebuild, md_inst=inst)
+                    if res is None:
+                        break
                     add_setup_params(res, chunk_size=chunk_size,
                                      thread_cnt=thread_cnt,
                                      cache_size=cache_size)

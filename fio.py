@@ -8,9 +8,8 @@ import subprocess as sp
 class FIO:
     _SIZE = 4<<30
 
-    def __init__(self, path, cpu=False, executable="fio", **kargs):
+    def __init__(self, cpu=False, executable="fio", **kargs):
         self.args = {
-            "filename": path,
             "name": "md_test",
             "blocksize": 1 << 20,
             "runtime": 15,
@@ -22,7 +21,7 @@ class FIO:
             "group_reporting": 1,
             "direct": 1,
             "ioengine": "libaio",
-            "iodepth": 2,
+            "iodepth": 8,
             "offset_increment": self._SIZE,
             "output-format": "json",
         }
