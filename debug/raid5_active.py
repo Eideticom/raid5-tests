@@ -34,7 +34,7 @@ if __name__ == "__main__":
         non_lru_stripes = []
         for s in stripes:
             if md.list_empty(s.lru.address_of_()):
-                non_lru_stripse.append(s)
+                non_lru_stripes.append(s)
         print(f"Hashed Stripes not in LRU: {len(non_lru_stripes)}")
 
         if non_lru_stripes:
