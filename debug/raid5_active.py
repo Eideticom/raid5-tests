@@ -8,6 +8,8 @@ import md
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("disk", nargs="?", default="md0")
+    parser.add_argument("-s", "--stripe", type=int, metavar="SECTOR",
+                        help="dump specific stripe, specified by sector")
     args = parser.parse_args()
 
     try:
@@ -30,6 +32,18 @@ if __name__ == "__main__":
 
         for state, lst in state_map.items():
             print(f"  -- State: {state} Count: {len(lst)}")
+
+        if args.stripe:
+            for s in stripes:
+                if s.sector == args.stripe:
+                    print()
+                    print("Requested ", end="")
+                    md.print_stripe_info(conf, s)
+                    print()
+                    break
+            else:
+                print("WARNING: Requested stripe not in hash table!")
+                print()
 
         non_lru_stripes = []
         for s in stripes:
