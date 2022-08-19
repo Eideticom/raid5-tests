@@ -111,12 +111,48 @@ class Raid5StripeState(enum.IntEnum):
     STRIPE_R5C_FULL_STRIPE = enum.auto()
     STRIPE_R5C_PREFLUSH = enum.auto()
 
+class Raid5DevFlags(enum.IntEnum):
+    R5_UPTODATE = 0
+    R5_LOCKED = enum.auto()
+    R5_DOUBLE_LOCKED = enum.auto()
+    R5_OVERWRITE = enum.auto()
+    R5_Insync = enum.auto()
+    R5_Wantread = enum.auto()
+    R5_Wantwrite = enum.auto()
+    R5_Overlap = enum.auto()
+    R5_ReadNoMerge = enum.auto()
+    R5_ReadError = enum.auto()
+    R5_ReWrite = enum.auto()
+    R5_Expanded = enum.auto()
+    R5_Wantcompute = enum.auto()
+    R5_Wantfill = enum.auto()
+    R5_Wantdrain = enum.auto()
+    R5_WantFUA = enum.auto()
+    R5_SyncIO = enum.auto()
+    R5_WriteError = enum.auto()
+    R5_MadeGood = enum.auto()
+    R5_ReadRepl = enum.auto()
+    R5_MadeGoodRepl = enum.auto()
+    R5_NeedReplace = enum.auto()
+    R5_WantReplace = enum.auto()
+    R5_Discard = enum.auto()
+    R5_SkipCopy = enum.auto()
+    R5_InJournal = enum.auto()
+    R5_OrigPageUPTDODATE = enum.auto()
+
 def stripe_states(state):
     states = []
     for s in Raid5StripeState:
         if (1 << s.value) & state:
             states.append(s)
     return states
+
+def stripe_rdev_flags(flg):
+    flags = []
+    for f in Raid5DevFlags:
+        if (1 << f.value) & flg:
+            flags.append(f)
+    return flags
 
 def print_stripe_info(conf, stripe):
     print("Stripe Info:")
@@ -128,3 +164,16 @@ def print_stripe_info(conf, stripe):
 
     lru_list = find_stripe_lru_list(conf, stripe)
     print(f"  LRU List:     {lru_list}")
+
+    for i in range(stripe.disks):
+        if i == stripe.pd_idx:
+            typ = "P"
+        elif i == stripe.qd_idx:
+            typ = "Q"
+        else:
+            typ = "D"
+        print(f"  Disk:	    {i} ({typ})")
+        print(f"    Sector:    {int(stripe.dev[i].sector)}")
+        print(f"    Flags:     {hex(stripe.dev[i].flags)}")
+        for f in stripe_rdev_flags(stripe.dev[i].flags):
+            print(f"            {f.name}")
