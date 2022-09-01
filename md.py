@@ -235,21 +235,29 @@ class MDInstance:
         while pathlib.Path(self.md_dev).exists():
             time.sleep(0.01)
 
-    def _create_loop_disk(self, i, size):
+    def _get_loop_paths(self, i):
         dev = f"/dev/loop{i}"
         backing = f"/var/tmp/lodisk{i}"
+        return dev, backing
+
+    def _create_loop_disk(self, dev, backing, size):
         subprocess.call(["losetup", "-d", dev], stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL)
         open(backing, "w").close()
         os.truncate(backing, size)
         subprocess.check_call(["losetup", dev, backing])
-        return dev
 
     def _create_loop_disks(self, count, size):
         ret = []
+        off = 0
 
         for i in range(count):
-            dev = self._create_loop_disk(i, size)
+            dev, backing = self._get_loop_paths(i + off)
+            while pathlib.Path(dev).exists() and \
+                  not pathlib.Path(backing).exists():
+                off += 1
+                dev, backing = self._get_loop_paths(i + off)
+            self._create_loop_disk(dev, backing, size)
             ret.append(dev)
 
         return ret
@@ -330,7 +338,14 @@ class MDInstance:
         if self.disk_type == 'ram':
             return f"/dev/ram{n}"
         elif self.disk_type == 'loopback':
-            return self._create_loop_disk(n, self.disk_size)
+            if len(self.special_devs):
+                last_dev = self.secial_devs[-1]
+            else:
+                last_dev = self.devs[-1]
+            n = int(last_dev.split('loop')[-1]) + 1
+            dev, backing = self._get_loop_paths(n)
+            self._create_loop_disk(dev, backing, self.disk_size)
+            return dev
 
         raise MDInvalidArgumentError("Can't grow array further without using loop or ram disks")
 
