@@ -37,9 +37,7 @@ def run_all_quick(env):
 
 
 TEST_ENVS = {
-    "default":       None,
-    "loop":          {"DISK_TYPE": "loopback",
-                      "SIZE":       "64M"},
+    "default":       {},
     "no_thread":     {"THREAD_CNT": "0"},
     "bitmap":        {"POLICY":     "bitmap"},
     "ppl":           {"POLICY":     "ppl",
@@ -54,8 +52,13 @@ TEST_ENVS = {
     "raid4":         {"LEVEL":      "4"},
 }
 
-if "DEVS" in os.environ and os.environ["DEVS"].strip() != "":
-    del TEST_ENVS["loop"]
+def run_all_envs(tests, disk_type, env):
+    for test in tests:
+        print(f"Running {test} with {disk_type}:")
+        if args.quick:
+            run_all_quick(TEST_ENVS[test] | env)
+        else:
+            run_all_tests(TEST_ENVS[test] | env)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -63,20 +66,41 @@ if __name__ == "__main__":
                         choices=list(TEST_ENVS.keys()) + [[]])
     parser.add_argument("-q", "--quick", action="store_true",
                         help="quick version of the test")
+    parser.add_argument("-d", "--disk_type", choices=("ram", "dev", "loopback",
+                                                      "loop", "both",
+                                                      "ram_and_loop"),
+                        help="which disk types to run on")
+
     args = parser.parse_args()
 
     os.environ["ZERO_FIRST"] = "y"
     os.environ["QUIET"] = "y"
 
+    if args.disk_type is None:
+        args.disk_type = os.environ.get("DISK_TYPE", "ram")
+
+    if args.disk_type == "dev" and "DEVS" not in os.environ:
+        sys.exit("DEVS must be set in the environment to use --disk-type=devs")
+
     if not args.tests:
         args.tests = TEST_ENVS.keys()
 
     try:
-        for test in args.tests:
-            print(f"Running {test}:")
-            if args.quick:
-                run_all_quick(TEST_ENVS[test])
+        loop_env = {"DISK_TYPE": "loopback",
+                    "SIZE":       "64M"}
+        ram_env = {"DISK_TYPE": "ram"}
+
+        if args.disk_type in ("both", "ram_and_loop"):
+            run_all_envs(args.tests, "ram", ram_env)
+            run_all_envs(args.tests, "loopback", loop_env)
+        else:
+            if args.disk_type in ("loop", "loopback"):
+                env = loop_env
+            elif args.disk_type == "ram":
+                env = ram_env
             else:
-                run_all_tests(TEST_ENVS[test])
+                env = {"DISK_TYPE": "dev"}
+
+            run_all_envs(args.tests, args.disk_type, env)
     except KeyboardInterrupt:
         print()
