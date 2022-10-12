@@ -29,15 +29,15 @@ def iops_suffix(val):
     suffixes = ["", "K", "M", "G"]
     return suffix(val, suffixes, base=1000)
 
-def run_fio(fio, bs, chunk_size, thread_cnt, cache_size, bw, write,
-            offset_increment=0):
-    res = {"blocksize"   : bs,
-           "chunk_size"  : chunk_size,
-           "thread_cnt"  : thread_cnt,
-           "cache_size"  : cache_size,
-    }
+def run_fio(fio, bs, bw, write, offset_increment=0, rebuild=False,
+            md_inst=None):
+    res = {"blocksize" : bs}
 
     rw = "write" if write else "read"
+
+    if rebuild and md_inst:
+        md_inst.degrade(md_inst.devs[0])
+        md_inst.recover(md_inst.devs[0])
 
     if bw:
         fio_res = fio.run(blocksize=bs, readwrite=rw,
@@ -119,6 +119,8 @@ if __name__ == "__main__":
     grp.add_argument("--ramptime", default=0, help="fio ramptime.")
     grp.add_argument("--fio-size", default=4<<30, type=md_parser._suffix_parse,
                      help="fio size")
+    grp.add_argument("--rebuild", action="store_true",
+                     help="measure performance during rebuild.")
 
     args = md_parser.parse_args()
 
@@ -152,7 +154,7 @@ if __name__ == "__main__":
             inst.chunk_size = chunk_size
             inst.thread_cnt = thread_cnt
             inst.cache_size = cache_size
-            inst.setup()
+            inst.setup(wait=False)
 
             if args.level == 5:
                 stripe_size = chunk_size * (args.disks - 1)
@@ -171,48 +173,64 @@ if __name__ == "__main__":
             for bs in args.bandwidth:
                 if args.write:
                     print(f"{done:.1f}%", end="\r")
-                    res = run_fio(fio, bs=bs, chunk_size=chunk_size,
-                                  thread_cnt=thread_cnt,
-                                  cache_size=cache_size, bw=True,
-                                  write=True,
-                                  offset_increment=offset_increment)
+                    res = run_fio(fio, bs=bs, bw=True, write=True,
+                                  offset_increment=offset_increment,
+                                  rebuild=args.rebuild, md_inst=inst)
+                    res.update(dict(chunk_size=chunk_size,
+                                    thread_cnt=thread_cnt,
+                                    cache_size=cache_size))
                     results['BW']['write'].setdefault(bs, [])
                     results['BW']['write'][bs].append(res)
                     done += step
 
+                    if args.rebuild:
+                        inst.setup(wait=False)
+
                 if args.read:
                     print(f"{done:.1f}%", end="\r")
-                    res = run_fio(fio, bs=bs, chunk_size=chunk_size,
-                                  thread_cnt=thread_cnt,
-                                  cache_size=cache_size, bw=True,
-                                  write=False,
-                                  offset_increment=offset_increment)
+                    res = run_fio(fio, bs=bs, bw=True, write=False,
+                                  offset_increment=offset_increment,
+                                  rebuild=args.rebuild, md_inst=inst)
+                    res.update(dict(chunk_size=chunk_size,
+                                    thread_cnt=thread_cnt,
+                                    cache_size=cache_size))
                     results['BW']['read'].setdefault(bs, [])
                     results['BW']['read'][bs].append(res)
                     done += step
 
+                    if args.rebuild:
+                        inst.setup(wait=False)
+
             for bs in args.iops:
                 if args.write:
                     print(f"{done:.1f}%", end="\r")
-                    res = run_fio(fio, bs=bs, chunk_size=chunk_size,
-                                  thread_cnt=thread_cnt,
-                                  cache_size=cache_size, bw=False,
-                                  write=True,
-                                  offset_increment=offset_increment)
+                    res = run_fio(fio, bs=bs, bw=False, write=True,
+                                  offset_increment=offset_increment,
+                                  rebuild=args.rebuild, md_inst=inst)
+                    res.update(dict(chunk_size=chunk_size,
+                                    thread_cnt=thread_cnt,
+                                    cache_size=cache_size))
                     results['IOPS']['write'].setdefault(bs, [])
                     results['IOPS']['write'][bs].append(res)
                     done += step
 
+                    if args.rebuild:
+                        inst.setup(wait=False)
+
                 if args.read:
                     print(f"{done:.1f}%", end="\r")
-                    res = run_fio(fio, bs=bs, chunk_size=chunk_size,
-                                  thread_cnt=thread_cnt,
-                                  cache_size=cache_size, bw=False,
-                                  write=False,
-                                  offset_increment=offset_increment)
+                    res = run_fio(fio, bs=bs, bw=False, write=False,
+                                  offset_increment=offset_increment,
+                                  rebuild=args.rebuild, md_inst=inst)
+                    res.update(dict(chunk_size=chunk_size,
+                                    thread_cnt=thread_cnt,
+                                    cache_size=cache_size))
                     results['IOPS']['read'].setdefault(bs, [])
                     results['IOPS']['read'][bs].append(res)
                     done += step
+
+                    if args.rebuild:
+                        inst.setup(wait=False)
 
     peaks = {}
     for bs in args.bandwidth:
@@ -227,7 +245,7 @@ if __name__ == "__main__":
             add_peak(results['IOPS']['read'][bs], peaks, bs, 'Rnd Read IOPS')
 
     if args.output == "pretty":
-        subtitle = f'(disks:{args.disks}, level:{args.level}, cores:{os.cpu_count()})'
+        subtitle = f'(disks:{args.disks}, level:{args.level}, cores:{os.cpu_count()}, rebuild:{args.rebuild})'
         if args.bandwidth:
             if args.write:
                 pretty_print(results['BW']['write'], f'Seq Write BW {subtitle}')
