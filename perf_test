@@ -56,7 +56,7 @@ def setup_funccount(enable_fc, read, write):
 
     if write:
         funcs = 'raid5_make_request raid5_write_one_full_stripe'
-        return funccount.Funccount(funcs, sleep=args.ramptime)
+        return funccount.FuncCount(funcs, sleep=args.ramptime)
 
     return None
 
@@ -71,7 +71,7 @@ def run_fio(fio, bs, bw, write, offset_increment=0, rebuild=False,
         md_inst.recover(md_inst.devs[0])
 
     if fc:
-        fc.start()
+        fc.run()
 
     try:
         if bw:
