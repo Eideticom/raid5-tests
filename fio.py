@@ -22,7 +22,7 @@ class FIO:
             "group_reporting": 1,
             "direct": 1,
             "ioengine": "libaio",
-            "iodepth": 2,
+            "iodepth": 8,
             "offset_increment": self._SIZE,
             "output-format": "json",
         }
